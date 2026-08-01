@@ -1,0 +1,2002 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Chalkline</title>
+<meta name="theme-color" content="#0C1711">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Chalkline">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./apple-touch-icon.png">
+<link rel="icon" href="./icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+
+<style>
+:root{
+  --pitch:#0C1711;
+  --turf:#152420;
+  --turf-hi:#1D3129;
+  --line:#3F5F4E;
+  --chalk:#EEF3EC;
+  --chalk-dim:#93A79B;
+  --flood:#FFC93C;
+  --ours:#3B9EFF;
+  --theirs:#FF5B44;
+  --space:#FFC93C;
+  --path:#B6FF5C;
+  --ball:#FFFFFF;
+  --r:3px;
+  --display:"Barlow Condensed", "Oswald", Impact, sans-serif;
+  --body:"IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --mono:"IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--pitch)}
+body{
+  color:var(--chalk);
+  font-family:var(--body);
+  font-size:14px;
+  overflow:hidden;
+  overscroll-behavior:none;
+}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer;border:none;background:none}
+:focus-visible{outline:2px solid var(--flood);outline-offset:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- chrome ---------- */
+#top{
+  height:46px;display:flex;align-items:center;gap:14px;padding:0 14px;max-width:100%;overflow:hidden;
+  border-bottom:1px solid var(--line);background:var(--turf);
+}
+.brand{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:.06em;text-transform:uppercase}
+.brand em{font-style:normal;color:var(--flood)}
+.tabs{display:flex;gap:2px;margin-left:auto}
+.tab{
+  font-family:var(--display);font-size:16px;letter-spacing:.09em;text-transform:uppercase;
+  padding:6px 14px;border:1px solid var(--line);color:var(--chalk-dim);border-radius:var(--r);
+}
+.tab[aria-selected="true"]{background:var(--flood);color:#0C1711;border-color:var(--flood);font-weight:700}
+.eyebrow{
+  font-family:var(--mono);font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--chalk-dim);
+}
+#views{height:calc(100% - 46px);position:relative;background:var(--pitch);overflow:hidden}
+.view{position:absolute;inset:0;display:none;overflow:auto;background:var(--pitch)}
+.view.on{display:block}
+
+/* ---------- sideline ---------- */
+#sideline{display:none;flex-direction:column;padding:14px;gap:12px;height:100%;overflow:hidden}
+#sideline.on{display:flex}
+#sideline>*{flex:none}
+.clockwrap{text-align:center;padding:6px 0 2px}
+.clock{
+  font-family:var(--mono);font-weight:600;font-size:clamp(56px,17vw,104px);
+  line-height:.9;letter-spacing:-.03em;
+  font-variant-numeric:tabular-nums;
+}
+.clock.idle{color:var(--chalk-dim)}
+.clock.live{color:var(--flood)}
+.clocksub{display:flex;justify-content:center;gap:10px;align-items:center;margin-top:8px}
+.pill{
+  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+  border:1px solid var(--line);padding:4px 9px;border-radius:99px;color:var(--chalk-dim);
+}
+.pill.hot{border-color:var(--flood);color:var(--flood)}
+
+.padgrid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+  flex:1 1 auto;min-height:0;overflow-y:auto;align-content:start;
+  -webkit-overflow-scrolling:touch;
+}
+.pad{
+  border:1px solid var(--line);border-left-width:5px;border-radius:var(--r);
+  background:var(--turf);display:flex;flex-direction:column;justify-content:center;
+  padding:11px 12px;min-height:68px;text-align:left;transition:background .08s,transform .08s;
+}
+.pad:active{background:var(--turf-hi);transform:scale(.98)}
+.pad .k{font-family:var(--display);font-size:21px;line-height:1.05;letter-spacing:.02em;text-transform:uppercase;font-weight:600}
+.pad .n{font-family:var(--mono);font-size:10px;color:var(--chalk-dim);margin-top:4px;letter-spacing:.08em}
+.pad[disabled]{opacity:.5}
+.pad[disabled] .k{color:var(--chalk-dim)}
+.pad.flash{background:var(--flood);color:#0C1711}
+.pad.flash .n{color:#0C1711}
+
+.marklog{
+  border:1px solid var(--line);border-radius:var(--r);background:var(--turf);
+  flex:0 1 auto;min-height:74px;max-height:26vh;overflow:auto;
+  -webkit-overflow-scrolling:touch;
+}
+.logrow{
+  display:flex;align-items:center;gap:9px;padding:7px 11px;border-bottom:1px solid rgba(63,95,78,.4);
+  font-family:var(--mono);font-size:12px;
+}
+.logrow:last-child{border-bottom:none}
+.logrow .swatch{width:3px;height:16px;border-radius:2px;flex:none}
+.logrow .lbl{font-family:var(--body);font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logrow .x{color:var(--chalk-dim);padding:2px 5px;font-size:14px}
+.emptylog{padding:16px;text-align:center;color:var(--chalk-dim);font-size:13px;background:var(--pitch)}
+
+.rowbtns{display:flex;gap:8px;max-width:100%}
+.rowbtns>*{min-width:0}
+.btn{
+  border:1px solid var(--line);border-radius:var(--r);padding:11px 14px;background:var(--turf);
+  font-family:var(--display);font-size:16px;letter-spacing:.08em;text-transform:uppercase;font-weight:600;flex:1;
+}
+.btn:hover{background:var(--turf-hi)}
+.btn.primary{background:var(--flood);color:#0C1711;border-color:var(--flood)}
+.btn.small{font-size:13px;padding:7px 11px;flex:none}
+.btn.danger{color:var(--theirs)}
+
+/* ---------- studio ---------- */
+#studio{display:none;grid-template-columns:230px 1fr 208px;height:100%}
+#studio.on{display:grid}
+.col{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--pitch)}
+.col:last-child{border-right:none;border-left:1px solid var(--line)}
+.colhead{
+  padding:9px 12px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:8px;
+  background:var(--turf);flex:none;max-width:100%;overflow:hidden;
+}
+.colhead .eyebrow{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.colhead .eyebrow{flex:1}
+/* an iOS scroll layer with no background of its own paints white, not the
+   colour it looks like it inherits — so every scroller states its own */
+.scroll{overflow:auto;flex:1;min-height:0;background:var(--pitch)}
+
+.clip{
+  display:block;width:100%;text-align:left;padding:9px 12px;border-bottom:1px solid rgba(63,95,78,.35);
+  border-left:4px solid transparent;
+}
+.clip:hover{background:var(--turf)}
+.clip[aria-current="true"]{background:var(--turf-hi)}
+.clip .t{font-family:var(--mono);font-size:11px;color:var(--chalk-dim);letter-spacing:.05em}
+.clip .c{font-family:var(--display);font-size:17px;letter-spacing:.02em;text-transform:uppercase;line-height:1.1;margin-top:1px}
+.clip .cap{font-size:11px;color:var(--chalk-dim);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip .dot{display:inline-block;width:6px;height:6px;border-radius:99px;margin-right:5px;vertical-align:middle}
+
+.stage{display:flex;flex-direction:column;min-width:0;min-height:0;background:#060D0A}
+.canvaswrap{
+  flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:10px;
+}
+#vidbox{position:relative;line-height:0;max-width:100%;max-height:100%}
+#vid{max-width:100%;max-height:100%;display:block;background:#000}
+#draw{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+#dropzone{
+  position:absolute;inset:10px;border:1px dashed var(--line);border-radius:var(--r);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;
+}
+#dropzone.hide{display:none}
+#dropzone h2{font-family:var(--display);font-size:clamp(18px,5vw,28px);letter-spacing:.04em;text-transform:uppercase;margin:0;font-weight:600;max-width:100%}
+#dropzone p{color:var(--chalk-dim);max-width:min(380px,100%);margin:0;line-height:1.55}
+
+.transport{border-top:1px solid var(--line);background:var(--turf);padding:8px 12px 11px;flex:none}
+.rail{
+  position:relative;height:34px;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);
+  cursor:pointer;overflow:hidden;
+}
+.railtick{position:absolute;top:0;bottom:0;width:2px;opacity:.9}
+.railtick.sel{width:3px;box-shadow:0 0 0 1px rgba(255,255,255,.45)}
+.railwin{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.14);border-left:1px solid var(--flood);border-right:1px solid var(--flood)}
+.railhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--chalk);pointer-events:none}
+.tbar{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.tbtn{
+  border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;background:var(--turf);
+  font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+}
+.tbtn:hover{background:var(--turf-hi)}
+.tbtn[aria-pressed="true"]{background:var(--flood);color:#0C1711;border-color:var(--flood);font-weight:600}
+.tc{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--flood);letter-spacing:.02em}
+.tc small{color:var(--chalk-dim)}
+
+.tagbar{
+  display:flex;align-items:center;gap:9px;margin-top:8px;padding-top:8px;
+  border-top:1px solid rgba(63,95,78,.5);flex-wrap:wrap;
+}
+.tagpads{display:flex;gap:5px;flex:1;flex-wrap:wrap;min-width:0}
+.tagpad{
+  border:1px solid var(--line);border-left-width:4px;border-radius:var(--r);
+  background:var(--turf);padding:6px 10px;display:flex;align-items:center;gap:7px;
+  transition:background .08s,transform .08s;
+}
+.tagpad:hover{background:var(--turf-hi)}
+.tagpad:active,.tagpad.hit{background:var(--flood);color:#0C1711;transform:scale(.96)}
+.tagpad .lb{font-family:var(--display);font-size:15px;letter-spacing:.03em;text-transform:uppercase;white-space:nowrap}
+.tagpad .kc{
+  font-family:var(--mono);font-size:9px;border:1px solid var(--line);border-radius:2px;
+  padding:1px 4px;opacity:.75;text-transform:uppercase;
+}
+.tagpad.hit .kc{border-color:#0C1711}
+.tools{padding:10px 12px;display:flex;flex-direction:column;gap:12px;background:var(--pitch)}
+.toolgrid{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.tool{
+  border:1px solid var(--line);border-radius:var(--r);padding:8px 4px;background:var(--turf);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+}
+.tool:hover{background:var(--turf-hi)}
+.tool[aria-pressed="true"]{background:var(--flood);color:#0C1711;border-color:var(--flood)}
+.tool svg{width:19px;height:19px}
+.tool span{font-family:var(--mono);font-size:9px;letter-spacing:.07em;text-transform:uppercase}
+.swatches{display:flex;flex-direction:column;gap:4px}
+.sw{
+  display:flex;align-items:center;gap:8px;border:1px solid var(--line);border-radius:var(--r);
+  padding:6px 9px;background:var(--turf);
+}
+.sw:hover{background:var(--turf-hi)}
+.sw[aria-pressed="true"]{border-color:var(--chalk)}
+.sw i{width:12px;height:12px;border-radius:99px;flex:none}
+.sw span{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase}
+label.field{display:block}
+label.field>.eyebrow{display:block;margin-bottom:5px}
+textarea,input[type=text],input[type=number],select{
+  width:100%;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);
+  padding:7px 9px;color:var(--chalk);font-size:13px;
+}
+textarea{resize:vertical;min-height:56px;line-height:1.45}
+.count{font-family:var(--mono);font-size:10px;color:var(--chalk-dim);margin-top:4px;display:flex;justify-content:space-between}
+.count.over{color:var(--theirs)}
+.prompt{
+  border-left:2px solid var(--flood);padding:6px 0 6px 9px;color:var(--chalk-dim);
+  font-size:12px;line-height:1.5;font-style:italic;
+}
+.pairs{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.hint{color:var(--chalk-dim);font-size:11px;line-height:1.5}
+kbd{
+  font-family:var(--mono);font-size:10px;border:1px solid var(--line);border-radius:2px;
+  padding:1px 4px;color:var(--chalk);
+}
+.sep{height:1px;background:var(--line);margin:2px 0}
+
+.syncline{
+  display:flex;align-items:center;gap:8px;justify-content:center;
+  font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--chalk-dim);padding:2px 0 4px;
+}
+.dotstate{width:7px;height:7px;border-radius:99px;background:var(--line);flex:none}
+.dotstate.on{background:var(--path)}
+.dotstate.busy{background:var(--flood);animation:blink .7s steps(2) infinite}
+.dotstate.bad{background:var(--theirs)}
+#toast{
+  position:fixed;left:50%;bottom:22px;transform:translateX(-50%);
+  background:var(--flood);color:#0C1711;font-family:var(--mono);font-size:12px;letter-spacing:.05em;
+  padding:9px 16px;border-radius:var(--r);opacity:0;pointer-events:none;transition:opacity .18s;z-index:60;
+}
+#toast.on{opacity:1}
+#rec{
+  position:absolute;top:16px;left:16px;display:none;align-items:center;gap:8px;
+  background:rgba(12,23,17,.9);border:1px solid var(--theirs);border-radius:var(--r);padding:6px 11px;
+  font-family:var(--mono);font-size:11px;letter-spacing:.08em;z-index:50;
+}
+#rec.on{display:flex}
+#rec i{width:8px;height:8px;border-radius:99px;background:var(--theirs);animation:blink 1s steps(2) infinite}
+@keyframes blink{50%{opacity:.15}}
+
+dialog{
+  background:var(--turf);color:var(--chalk);border:1px solid var(--line);border-radius:var(--r);
+  max-width:620px;width:92vw;padding:0;
+}
+dialog::backdrop{background:rgba(6,13,10,.82)}
+.dlghead{padding:12px 16px;border-bottom:1px solid var(--line);display:flex;align-items:center}
+.dlgbody{padding:16px;max-height:66vh;overflow:auto;line-height:1.6}
+.dlgbody h3{font-family:var(--display);font-size:19px;letter-spacing:.05em;text-transform:uppercase;margin:18px 0 6px;font-weight:600}
+.dlgbody h3:first-child{margin-top:0}
+.dlgbody ul{margin:0;padding-left:18px}
+.dlgbody li{margin-bottom:5px}
+.dlgbody code{font-family:var(--mono);font-size:12px;background:#0A130E;padding:1px 5px;border-radius:2px;word-break:break-all}
+.dlgfoot{padding:12px 16px;border-top:1px solid var(--line);display:flex;gap:8px;justify-content:flex-end}
+
+@media (max-width:600px){
+  #ctx{display:none}
+  #top{gap:10px;padding:0 10px}
+  .brand{font-size:20px}
+  .tab{padding:6px 11px;font-size:15px}
+}
+@media (max-height:740px){
+  .clock{font-size:clamp(44px,13vw,72px)}
+  .pad{min-height:60px}
+  .pad .k{font-size:19px}
+}
+.panelswitch{display:none}
+
+@media (max-width:900px){
+  /* A phone can't hold three columns. Stack: video on top, then one panel at a
+     time behind a switch, so nothing overlaps and nothing is half-visible. */
+  #studio{display:flex;flex-direction:column;height:100%;overflow:hidden;max-width:100vw}
+  #studio.on{display:flex}
+  .stage{order:1;flex:1 1 auto;min-height:0}
+  .panelswitch{
+    order:2;display:flex;flex:none;max-width:100%;overflow:hidden;border-top:1px solid var(--line);
+    border-bottom:1px solid var(--line);background:var(--turf);
+  }
+  .panelswitch button{
+    flex:1;padding:10px 8px;font-family:var(--display);font-size:16px;
+    letter-spacing:.09em;text-transform:uppercase;color:var(--chalk-dim);
+  }
+  .panelswitch button[aria-pressed="true"]{background:var(--flood);color:#0C1711;font-weight:700}
+  #studio .col{
+    order:3;flex:0 0 auto;max-height:38vh;
+    border:none;border-right:none;border-left:none;
+  }
+  body.panel-clips  #studio .col:last-of-type{display:none}
+  body.panel-markup #studio .col:first-of-type{display:none}
+
+  .canvaswrap{padding:0}
+  #dropzone{inset:8px;padding:16px;gap:9px}
+  #dropzone h2{font-size:20px}
+  #dropzone p{font-size:12px;line-height:1.5}
+
+  /* transport: one scrollable row rather than four wrapped ones */
+  .transport{padding:7px 9px 9px}
+  .tbar{flex-wrap:nowrap;overflow-x:auto;gap:5px;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .tbar::-webkit-scrollbar{display:none}
+  .tbtn{flex:none;padding:7px 9px}
+  .tc{flex:none;white-space:nowrap}
+  .tbar>span[style*="flex:1"]{display:none}
+
+  .tagbar{gap:7px;flex-wrap:nowrap}
+  .tagbar>.eyebrow:first-child{display:none}
+  .tagpads{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;padding-bottom:2px}
+  .tagpads::-webkit-scrollbar{display:none}
+  .tagpad{flex:none;padding:8px 10px}
+
+  /* tool palette: a compact strip, not a wall of tiles */
+  .toolgrid{grid-template-columns:repeat(5,1fr);gap:4px}
+  .tool{padding:7px 2px;gap:3px}
+  .tool svg{width:17px;height:17px}
+  .tool span{font-size:8px}
+  .swatches{flex-direction:row;flex-wrap:wrap}
+  .sw{flex:1 1 30%;justify-content:center;padding:7px 6px}
+  .tools{gap:10px;padding:10px}
+  .hint{display:none}
+}
+</style>
+
+<div id="top">
+  <div class="brand">Chalk<em>line</em></div>
+  <div class="eyebrow" id="ctx">no session</div>
+  <div class="tabs" role="tablist">
+    <button class="tab" role="tab" aria-selected="true" data-view="sideline">Sideline</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="studio">Studio</button>
+    <button class="tab" role="tab" aria-selected="false" data-view="help" style="max-width:44px">?</button>
+  </div>
+</div>
+
+<div id="views">
+
+  <!-- ================= SIDELINE ================= -->
+  <section id="sideline" class="view on">
+    <div class="clockwrap">
+      <div class="clock idle" id="clock">00:00</div>
+      <div class="clocksub">
+        <span class="pill" id="statepill">clock stopped</span>
+        <span class="pill" id="markpill">0 marks</span>
+      </div>
+    </div>
+
+    <div class="padgrid" id="pads"></div>
+
+    <div class="marklog" id="marklog"><div class="emptylog">Marks land here. Tap a pad the moment it happens — you can rename and trim later.</div></div>
+
+    <div class="rowbtns">
+      <button class="btn primary" id="startbtn">Start clock</button>
+      <button class="btn" id="undobtn">Undo</button>
+    </div>
+    <div class="rowbtns">
+      <button class="btn small" id="syncbtn">Send to laptop</button>
+      <button class="btn small" id="savemarks">Save file</button>
+      <button class="btn small" id="editpads">Pads</button>
+      <button class="btn small danger" id="resetbtn">Reset</button>
+    </div>
+    <div class="syncline" id="syncline"><span class="dotstate" id="syncdot"></span><span id="synctext">Sync off — marks stay on this device</span></div>
+  </section>
+
+  <!-- ================= STUDIO ================= -->
+  <section id="studio" class="view">
+
+    <div class="col">
+      <div class="colhead">
+        <span class="eyebrow">Clips</span>
+        <button class="tbtn" id="syncbtn2">Sync</button>
+        <button class="tbtn" id="loadmarks">Open</button>
+      </div>
+      <div class="scroll" id="cliplist"></div>
+      <div class="colhead" style="border-bottom:none;border-top:1px solid var(--line);gap:8px">
+        <label class="eyebrow" style="flex:1">Clock offset s
+          <input type="number" id="offset" step="0.5" value="0" style="margin-top:4px">
+        </label>
+        <label class="eyebrow" style="flex:1">Frame rate
+          <input type="number" id="fpsin" step="1" value="25" style="margin-top:4px">
+        </label>
+      </div>
+    </div>
+
+    <div class="stage">
+      <div class="canvaswrap">
+        <div id="vidbox" style="display:none">
+          <video id="vid" playsinline></video>
+          <canvas id="draw"></canvas>
+        </div>
+        <div id="rec"><i></i><span>Recording clip — leave this tab open</span></div>
+        <div id="dropzone">
+          <h2>Drop the match file here</h2>
+          <p>Your video never leaves this machine. Chalkline reads it straight off disk — nothing is uploaded, nothing is stored in the cloud.</p>
+          <button class="btn primary" style="flex:none" id="pickvid">Choose video file</button>
+          <button class="btn" style="flex:none;display:none" id="reopenvid">Reopen last match</button>
+          <input type="file" id="vidfile" accept="video/*" hidden>
+        </div>
+      </div>
+
+      <div class="transport">
+        <div class="rail" id="rail">
+          <div class="railwin" id="railwin" style="display:none"></div>
+          <div class="railhead" id="railhead" style="left:0"></div>
+        </div>
+        <div class="tbar">
+          <button class="tbtn" id="playbtn">Play</button>
+          <button class="tbtn" data-step="-1">◀ frame</button>
+          <button class="tbtn" data-step="1">frame ▶</button>
+          <span class="tc" id="tcode">00:00.00 <small>/ 00:00</small></span>
+          <span style="flex:1"></span>
+          <button class="tbtn" data-rate=".25">0.25×</button>
+          <button class="tbtn" data-rate=".5">0.5×</button>
+          <button class="tbtn" data-rate="1" aria-pressed="true">1×</button>
+          <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
+        </div>
+        <div class="tagbar" id="tagbar">
+          <span class="eyebrow" style="flex:none">Tag as you watch</span>
+          <div class="tagpads" id="tagpads"></div>
+          <label class="eyebrow" style="flex:none;display:flex;align-items:center;gap:5px">
+            lag
+            <input type="number" id="taglag" value="1" min="0" max="5" step="0.5"
+                   style="width:52px;padding:4px 6px" title="Seconds subtracted to allow for your reaction time">
+          </label>
+        </div>
+      </div>
+    </div>
+
+    <div class="panelswitch" id="panelswitch">
+      <button data-panel="clips" aria-pressed="true">Clips</button>
+      <button data-panel="markup" aria-pressed="false">Markup</button>
+    </div>
+
+    <div class="col">
+      <div class="colhead"><span class="eyebrow">Markup</span>
+        <button class="tbtn" id="clearbtn">Clear</button>
+      </div>
+      <div class="scroll tools">
+        <div class="toolgrid" id="toolgrid"></div>
+
+        <div>
+          <div class="eyebrow" style="margin-bottom:5px">Meaning of colour</div>
+          <div class="swatches" id="swatches"></div>
+        </div>
+
+        <div class="sep"></div>
+
+        <label class="field"><span class="eyebrow">Category</span>
+          <select id="recat" disabled><option>Pick a clip first</option></select>
+        </label>
+
+        <div class="pairs">
+          <label class="field"><span class="eyebrow">Pre-roll s</span><input type="number" id="pre" value="6" min="0" step="1"></label>
+          <label class="field"><span class="eyebrow">Post-roll s</span><input type="number" id="post" value="6" min="0" step="1"></label>
+        </div>
+
+        <label class="field">
+          <span class="eyebrow">Caption for the player</span>
+          <textarea id="caption" placeholder="What should they notice?"></textarea>
+        </label>
+        <div class="count" id="capcount"><span>0 words</span><span>aim for 15</span></div>
+
+        <div class="prompt" id="askprompt">Pick a clip to get a question to ask.</div>
+
+        <div class="sep"></div>
+
+        <label class="field"><span class="eyebrow">Markup shows</span>
+          <select id="burnmode">
+            <option value="freeze">On the freeze frame only</option>
+            <option value="all">Through the whole clip</option>
+          </select>
+        </label>
+        <label class="field"><span class="eyebrow">Freeze hold (seconds)</span>
+          <input type="number" id="hold" value="3" min="0" max="10" step="1">
+        </label>
+
+        <button class="btn primary" id="exportclip">Export clip</button>
+        <button class="btn" id="exportpng">Export still</button>
+
+        <div class="sep"></div>
+        <div class="eyebrow">Whole game reel</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card before each clip
+        </label>
+        <button class="btn" id="reelbtn">Compile all clips into one video</button>
+        <div class="hint" id="reelhint">Plays every clip through once to record it, so it takes about as long as the reel itself.</div>
+
+        <div class="sep"></div>
+        <button class="btn" id="exportall">Save session + ffmpeg cuts</button>
+
+        <div class="hint">
+          <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>1</kbd>–<kbd>8</kbd> tools ·
+          <kbd>⌘Z</kbd> undo · <kbd>[</kbd><kbd>]</kbd> prev/next clip
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ================= HELP ================= -->
+  <section id="help" class="view">
+    <div class="dlgbody" style="max-width:min(760px,100%);margin:0 auto;padding:22px 18px 60px;max-height:none">
+      <h3>Two ways in</h3>
+      <p><b>Tag at the ground.</b> Start the XbotGo recording, then hit <b>Start clock</b> here at the same moment. Tap a pad whenever something worth talking about happens. No watching the phone, and the work is done by the time you're back in the car.</p>
+      <p><b>Or tag from the sofa.</b> Skip the sideline entirely. Load the match in Studio, press play, and hit the category buttons under the video — or the letter keys <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd>, which sit under your left hand so your right stays on the transport. No clock, no offset, no syncing: marks land against the video's own timeline.</p>
+      <p>The <b>lag</b> box next to the tag buttons winds each mark back a second to allow for the fact you press <i>after</i> you've seen the thing. Raise it if your marks keep landing late. It only applies while the video is playing — if you've paused to place a mark precisely, the playhead is taken as read.</p>
+      <p>Watching at 1.5× or 2× and tagging as you go covers a 70-minute game in about forty minutes, which is still slower than tagging live. The sideline route stays the quicker one. This is the better route when you didn't tag on the day, when someone else filmed it, or when you want a second pass over a game you've already been through.</p>
+      <p>You can mix them freely — tag live, then add more on review. Marks from both land in the same list.</p>
+
+      <h3>The rest of the workflow</h3>
+      <ul>
+        <li><b>At the ground:</b> start the XbotGo recording, then hit <b>Start clock</b> here at the same moment. Tap a pad whenever something worth talking about happens. That's it — no watching the phone.</li>
+        <li><b>Half time:</b> if the camera keeps recording through the break, leave the clock running too — they have to stay in step. Only pause the clock if you also stop the recording, and resume both together. Pausing keeps the time; it never resets, and it survives the browser reloading.</li>
+        <li><b>At home:</b> Studio tab, drop in the match file, load your marks. Every mark becomes a clip with sensible in and out points.</li>
+        <li><b>Off by a few seconds?</b> Nudge <b>Sync offset</b> until the first clip lands right. It shifts every mark at once.</li>
+      </ul>
+
+      <h3>What the research says</h3>
+      <ul>
+        <li>Telestrated clips lifted player recall to 84% against 52% for plain clips — but only when used on key points. Drawing on everything drowns the message.</li>
+        <li>Keep clips to 30–60 seconds. One idea per clip.</li>
+        <li>Keep colour meaning fixed: blue is always us, red is always them. Coaches who change colours make clips harder to read.</li>
+        <li>Burn the markup in before sending. A clip shared on WhatsApp has to carry its own message.</li>
+        <li>A caption of around fifteen words roughly doubles what a clip achieves. The video shows the moment; the words say what to look for.</li>
+        <li>Ask before you tell. "What options did you have here?" beats "you should have played it wide."</li>
+        <li>Favour positive framing, and don't get too precise — at ten years old, one clear idea beats five accurate ones.</li>
+      </ul>
+
+      <h3>Tools</h3>
+      <ul>
+        <li><b>Spotlight</b> dims the pitch and lights one player — the fastest way to say "look here" without a word.</li>
+        <li><b>Passing option</b> draws a dashed arrow: the pass that was on, not the one played.</li>
+        <li><b>Space</b> shades an area of grass. Use it for the gap nobody occupied.</li>
+        <li><b>Marker</b> drops a numbered disc so you can talk about shape without naming kids on a shared clip.</li>
+      </ul>
+
+      <h3>Using it on both devices</h3>
+      <p>Chalkline is one file, so put it somewhere both devices can reach. A free GitHub Pages repo takes about ten minutes and gives you an https address — drop <code>chalkline.html</code> in as <code>index.html</code> and you're done. Once it's on https, the phone will offer Add to Home Screen and it opens full-screen with its own icon, no browser bars.</p>
+      <p>Each device keeps its own copy of the marks. Moving them across is up to you, and there are two ways.</p>
+
+      <h3>Handoff code — nothing to set up</h3>
+      <ul>
+        <li>Phone, after the game: <b>Send to laptop</b> → <b>Copy my marks as a code</b>.</li>
+        <li>Send it to yourself. WhatsApp to your own number works, so does email or Messages.</li>
+        <li>Laptop: same button, paste into the box, <b>Bring in these marks</b>.</li>
+      </ul>
+      <p>A full game of thirty marks compresses to roughly a thousand characters. It's one long string, so make sure it copies whole.</p>
+
+      <h3>Live sync — one afternoon of setup</h3>
+      <p>If you'd rather it just happen, both devices can talk to a tiny endpoint of your own. Cloudflare Workers has a free tier that will never charge you at this volume. Create a Worker, add a KV namespace bound as <code>CL</code>, and paste this:</p>
+      <p><code>export default {<br>
+&nbsp;async fetch(req, env) {<br>
+&nbsp;&nbsp;const cors = {"Access-Control-Allow-Origin":"*","Access-Control-Allow-Methods":"GET,PUT,OPTIONS","Access-Control-Allow-Headers":"Content-Type"};<br>
+&nbsp;&nbsp;if (req.method === "OPTIONS") return new Response(null, {headers: cors});<br>
+&nbsp;&nbsp;const key = new URL(req.url).pathname.slice(1);<br>
+&nbsp;&nbsp;if (!key) return new Response("no session", {status:400, headers:cors});<br>
+&nbsp;&nbsp;if (req.method === "PUT") {<br>
+&nbsp;&nbsp;&nbsp;await env.CL.put(key, await req.text(), {expirationTtl: 60*60*24*90});<br>
+&nbsp;&nbsp;&nbsp;return new Response("ok", {headers: cors});<br>
+&nbsp;&nbsp;}<br>
+&nbsp;&nbsp;const v = await env.CL.get(key);<br>
+&nbsp;&nbsp;return v ? new Response(v, {headers:{...cors,"Content-Type":"application/json"}})<br>
+&nbsp;&nbsp;&nbsp;&nbsp;: new Response("none", {status:404, headers:cors});<br>
+&nbsp;}<br>
+}</code></p>
+      <p>Put the Worker address in the endpoint field on both devices, give the session a name like <code>geckos-round-7</code>, tick <b>Keep in sync automatically</b>. The phone pushes a few seconds after each tap; the laptop pulls when you come back to the tab and every twenty seconds while it's open.</p>
+      <p>Marks <b>merge</b> rather than overwrite. Each mark carries the time it was last edited and the newer one wins, and a phone push can't wipe laptop markup because it carries none. Deleting a mark leaves a tombstone so it stays deleted everywhere. Your video and your drawings never go to the endpoint — only timestamps, labels and captions.</p>
+      <p>Anyone who guesses the session name can read it, so don't use player surnames.</p>
+
+      <h3>What survives you closing the tab</h3>
+      <p><b>Everything except the video itself.</b> Marks, trims, captions and all your drawings save continuously as you work — close the tab, close the browser, come back tomorrow, it's all there. There's no save button because there's nothing to forget to press.</p>
+      <p>The video can't be stored (it's gigabytes sitting on your disk), but Chalkline remembers <i>which file</i> it was. Come back and the drop screen offers <b>Reopen last match</b> — one click, no folder navigation. Chrome and Edge only; Safari makes you pick the file each time. If you've moved or renamed the file since, it'll ask you to find it again.</p>
+      <p>The one thing that doesn't survive: an <b>export in progress</b>. Recording happens in real time in the tab, so switching away mid-export can stall it. Start an export when you're ready to leave it alone.</p>
+
+      <h3>The whole-game reel</h3>
+      <p><b>Compile all clips into one video</b> plays every clip in order and records the lot as a single file — title card, freeze frame with your markup, then the action, clip after clip. Ordered by when they happened in the match, so it plays back as the game's story.</p>
+      <p>It records in real time. Twenty clips is roughly ten minutes of watching your own screen do the work, and the tab has to stay open and visible. Worth starting while you make a coffee.</p>
+      <p>For a long reel the ffmpeg route is more reliable and much faster, since it copies rather than re-records. <b>Save session + ffmpeg cuts</b> now writes the join command as well as the individual cuts. That gives you a clean H.264 MP4 — but it carries the trims only, not the markup, so it's the right choice for a plain highlights reel and the wrong one for a teaching reel.</p>
+
+      <h3>How a marked-up clip saves</h3>
+      <p>Your drawings are stored as shapes against the clip, not painted onto the video — which is why you can come back and edit or delete them. They only become part of the picture at export, when they're burned in permanently so the clip carries its meaning to whoever you send it to.</p>
+      <p><b>Markup shows</b> controls how much: <i>freeze frame only</i> puts the arrows on the held still and then lets the action run clean, which is usually what you want. <i>Whole clip</i> keeps them on screen throughout — useful for a zone that stays relevant, cluttered for an arrow that doesn't.</p>
+
+      <h3>Getting a proper MP4</h3>
+      <p>Export clip gives you a WebM recorded in the browser — fine for WhatsApp on Android, occasionally fussy on iPhone. <b>Save session + ffmpeg cuts</b> writes a text file of exact cut commands so you can produce clean H.264 MP4s:</p>
+      <p><code>ffmpeg -ss 412.5 -i match.mp4 -t 14 -c:v libx264 -crf 23 -vf scale=1280:-2 clip_03.mp4</code></p>
+
+      <h3>Privacy</h3>
+      <p>Everything runs in the page. The video is read from disk with a local object URL and is never uploaded. Marks and markup save to this browser only. Save the marks file if you want a backup.</p>
+    </div>
+  </section>
+</div>
+
+<div id="toast"></div>
+
+<dialog id="askdlg">
+  <div class="dlghead"><span class="eyebrow" id="askttl">Enter a value</span></div>
+  <div class="dlgbody" style="padding:14px 16px">
+    <input type="text" id="askinput" autocomplete="off">
+  </div>
+  <div class="dlgfoot">
+    <button class="btn small" id="askno">Cancel</button>
+    <button class="btn small primary" id="askyes">OK</button>
+  </div>
+</dialog>
+
+<dialog id="confdlg">
+  <div class="dlghead"><span class="eyebrow">Are you sure?</span></div>
+  <div class="dlgbody" style="padding:14px 16px;line-height:1.55" id="conftext"></div>
+  <div class="dlgfoot">
+    <button class="btn small" id="confno">Cancel</button>
+    <button class="btn small danger" id="confyes">Yes, do it</button>
+  </div>
+</dialog>
+
+<dialog id="padsdlg">
+  <div class="dlghead"><span class="eyebrow">Edit pads</span></div>
+  <div class="dlgbody">
+    <p class="hint">One line per pad: <code>Label | colour | pre | post | question to ask</code>. Colours: ours, theirs, space, path, ball, flood.</p>
+    <textarea id="padstext" style="min-height:230px;font-family:var(--mono);font-size:12px"></textarea>
+  </div>
+  <div class="dlgfoot">
+    <button class="btn small" id="padscancel">Cancel</button>
+    <button class="btn small primary" id="padssave">Save pads</button>
+  </div>
+</dialog>
+
+<dialog id="syncdlg">
+  <div class="dlghead"><span class="eyebrow">Move marks between devices</span></div>
+  <div class="dlgbody">
+
+    <h3 style="margin-top:0">1 · Handoff code</h3>
+    <p class="hint" style="font-size:12px">Nothing to set up. Copy the code on the phone, send it to yourself however you like, paste it on the laptop.</p>
+    <div class="rowbtns" style="margin:10px 0">
+      <button class="btn small" id="makecode">Copy my marks as a code</button>
+      <button class="btn small" id="sharecode">Share…</button>
+    </div>
+    <textarea id="codebox" placeholder="Paste a code here to bring those marks in" style="min-height:74px;font-family:var(--mono);font-size:11px;word-break:break-all"></textarea>
+    <div class="rowbtns" style="margin-top:8px">
+      <button class="btn small primary" id="applycode">Bring in these marks</button>
+    </div>
+
+    <h3>2 · Live sync</h3>
+    <p class="hint" style="font-size:12px">Point both devices at the same endpoint and session name and they keep themselves current. Marks merge rather than overwrite, so markup you've done on the laptop survives a phone push. Worker code is in the help tab.</p>
+    <label class="field" style="margin-top:10px"><span class="eyebrow">Endpoint URL</span>
+      <input type="text" id="syncurl" placeholder="https://chalkline.yourname.workers.dev"></label>
+    <label class="field" style="margin-top:8px"><span class="eyebrow">Session name</span>
+      <input type="text" id="synckey" placeholder="geckos-round-7"></label>
+    <label style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:13px">
+      <input type="checkbox" id="syncauto" style="width:auto"> Keep in sync automatically
+    </label>
+    <div class="rowbtns" style="margin-top:10px">
+      <button class="btn small" id="pullbtn">Pull down</button>
+      <button class="btn small" id="pushbtn">Push up</button>
+    </div>
+  </div>
+  <div class="dlgfoot">
+    <button class="btn small" id="syncclose">Done</button>
+  </div>
+</dialog>
+
+<script>
+/* ============================================================
+   Chalkline — sideline marker + studio telestrator
+   Single file. No network. No uploads.
+   ============================================================ */
+
+/* ---------- tiny storage shim: Claude artifact storage, else localStorage, else memory ---------- */
+const Store = (()=>{
+  const mem = new Map();
+  const hasWin = typeof window.storage === 'object' && window.storage && typeof window.storage.get === 'function';
+  let hasLS = false;
+  try { localStorage.setItem('__ck','1'); localStorage.removeItem('__ck'); hasLS = true; } catch(e){}
+  return {
+    async get(k){
+      if(hasWin){ try{ const r = await window.storage.get(k); return r ? JSON.parse(r.value) : null; }catch(e){ return null; } }
+      if(hasLS){ const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }
+      return mem.has(k) ? mem.get(k) : null;
+    },
+    async set(k,v){
+      const s = JSON.stringify(v);
+      if(hasWin){ try{ await window.storage.set(k,s); return; }catch(e){} }
+      if(hasLS){ try{ localStorage.setItem(k,s); return; }catch(e){} }
+      mem.set(k,v);
+    }
+  };
+})();
+
+const KEY = 'chalkline:session';
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+const COLORS = {
+  ours:  {hex:'#3B9EFF', name:'Us'},
+  theirs:{hex:'#FF5B44', name:'Them'},
+  space: {hex:'#FFC93C', name:'Space'},
+  path:  {hex:'#B6FF5C', name:'Ball path'},
+  ball:  {hex:'#FFFFFF', name:'Neutral'},
+  flood: {hex:'#FFC93C', name:'Space'}
+};
+
+const DEFAULT_PADS = [
+  {label:'On the ball',    color:'ours',   pre:6,  post:7,  ask:'What could you see before it came to you?'},
+  {label:'Off the ball',   color:'space',  pre:9,  post:4,  ask:'Where were you? Where could you have been?'},
+  {label:'Passing option', color:'path',   pre:7,  post:5,  ask:'Who else was on? Why did you choose that one?'},
+  {label:'Defending',      color:'theirs', pre:8,  post:6,  ask:'Which way were you sending them?'},
+  {label:'Goal or chance', color:'flood',  pre:14, post:10, ask:'What started this? Go back three passes.'},
+  {label:'Team shape',     color:'ball',   pre:7,  post:8,  ask:'Are we too close together or too far apart?'}
+];
+
+/* session state */
+let S = {
+  pads: DEFAULT_PADS,
+  marks: [],          // {id, t, padIndex, label, color, pre, post, ask, caption, shapes:[], u}
+  tomb: [],           // ids deleted anywhere, so a merge can't resurrect them
+  offset: 0,
+  videoName: ''
+};
+
+/* Clock is anchored to wall time (Date.now), not performance.now — the
+   monotonic clock can pause while a phone sleeps, and an epoch anchor also
+   survives a mid-game browser reload. Pausing accumulates; it never resets. */
+let clock = {epoch:null, acc:0};
+let clockRAF = null;
+function nowT(){ return clock.epoch ? clock.acc + (Date.now()-clock.epoch)/1000 : clock.acc; }
+function clockRunning(){ return clock.epoch !== null; }
+
+function syncClockUI(){
+  const run = clockRunning();
+  $('#clock').textContent = fmtClock(nowT());
+  $('#clock').className = 'clock ' + (run?'live':'idle');
+  $('#statepill').className = 'pill' + (run?' hot':'');
+  $('#statepill').textContent = run ? 'clock running'
+    : (clock.acc>0 ? 'paused · pads locked' : 'not started');
+  const b=$('#startbtn');
+  b.textContent = run ? 'Pause clock' : (clock.acc>0 ? 'Resume clock' : 'Start clock');
+  b.classList.toggle('primary', !run);
+  cancelAnimationFrame(clockRAF);
+  if(run) tickClock();
+  renderPads();
+}
+
+/* ---------- toast ---------- */
+let toastT;
+function toast(msg){
+  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  clearTimeout(toastT); toastT = setTimeout(()=>el.classList.remove('on'), 1900);
+}
+
+/* Native prompt/confirm are blocked inside sandboxed iframes — which is exactly
+   where this gets previewed. These behave the same but are ours, so they work
+   everywhere and don't look like a browser popup on a phone. */
+function ask(title, value=''){
+  return new Promise(res=>{
+    const d=$('#askdlg'), i=$('#askinput');
+    $('#askttl').textContent=title; i.value=value;
+    const done=v=>{ d.close(); cleanup(); res(v); };
+    const yes=()=>done(i.value);
+    const no =()=>done(null);
+    const key=e=>{ if(e.key==='Enter'){ e.preventDefault(); yes(); } };
+    function cleanup(){
+      $('#askyes').removeEventListener('click',yes);
+      $('#askno').removeEventListener('click',no);
+      i.removeEventListener('keydown',key);
+    }
+    $('#askyes').addEventListener('click',yes);
+    $('#askno').addEventListener('click',no);
+    i.addEventListener('keydown',key);
+    d.showModal();
+    setTimeout(()=>{ i.focus(); i.select(); },50);
+  });
+}
+function confirmBox(text){
+  return new Promise(res=>{
+    const d=$('#confdlg');
+    $('#conftext').textContent=text;
+    const done=v=>{ d.close(); cleanup(); res(v); };
+    const yes=()=>done(true), no=()=>done(false);
+    function cleanup(){
+      $('#confyes').removeEventListener('click',yes);
+      $('#confno').removeEventListener('click',no);
+    }
+    $('#confyes').addEventListener('click',yes);
+    $('#confno').addEventListener('click',no);
+    d.showModal();
+  });
+}
+
+/* Silent failures are worse than loud ones — surface anything that escapes.
+   "Script error." with no detail usually means a sandboxed frame blocked an API. */
+window.addEventListener('error', e=>{
+  const where = e.filename ? ' ('+String(e.filename).split('/').pop()+':'+e.lineno+')' : '';
+  toast('Something went wrong'+where+' — see console');
+  console.error('Chalkline:', e.message, e.error||'');
+});
+window.addEventListener('unhandledrejection', e=>{
+  console.error('Chalkline (async):', e.reason);
+});
+
+/* ---------- tabs ---------- */
+function showView(name){
+  $$('.tab').forEach(x=>x.setAttribute('aria-selected', x.dataset.view===name));
+  $$('.view').forEach(v=>v.classList.toggle('on', v.id===name));
+  if(name==='studio') requestAnimationFrame(fitCanvas);
+}
+$$('.tab').forEach(t=>t.addEventListener('click',()=>{
+  showView(t.dataset.view);
+  /* a sandboxed iframe refuses history writes — the tab still switches */
+  try{ history.replaceState(null,'','#'+t.dataset.view); }catch(e){}
+}));
+/* a desktop shortcut can point at #studio, the phone icon at #sideline */
+function currentHash(){ try{ return (location.hash||'').replace('#',''); }catch(e){ return ''; } }
+(function routeHash(){
+  const h=currentHash();
+  if(['sideline','studio','help'].includes(h)) showView(h);
+  else if(/Mobi|Android|iPhone/i.test(navigator.userAgent)) showView('sideline');
+  else showView('studio');
+})();
+window.addEventListener('hashchange',()=>{
+  const h=currentHash();
+  if(['sideline','studio','help'].includes(h)) showView(h);
+});
+
+/* ============================================================
+   SIDELINE
+   ============================================================ */
+function fmtClock(s){
+  s = Math.max(0, s);
+  const m = Math.floor(s/60), ss = Math.floor(s%60);
+  return String(m).padStart(2,'0')+':'+String(ss).padStart(2,'0');
+}
+function fmtTC(s){
+  s = Math.max(0,s);
+  const m = Math.floor(s/60), ss = (s%60);
+  return String(m).padStart(2,'0')+':'+ss.toFixed(2).padStart(5,'0');
+}
+
+function renderPads(){
+  const wrap = $('#pads'); wrap.innerHTML='';
+  S.pads.forEach((p,i)=>{
+    const b = document.createElement('button');
+    b.className='pad';
+    b.style.borderLeftColor = COLORS[p.color]?.hex || '#fff';
+    b.innerHTML = `<div class="k">${esc(p.label)}</div><div class="n">−${p.pre}s / +${p.post}s</div>`;
+    b.disabled = !clockRunning();
+    b.addEventListener('click', ()=>addMark(i,b));
+    wrap.appendChild(b);
+  });
+}
+function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function addMark(i, btn){
+  if(!clockRunning()) return;
+  const p = S.pads[i];
+  const m = {
+    id: 'm'+Date.now()+Math.random().toString(36).slice(2,6),
+    t: nowT(), padIndex:i, label:p.label, color:p.color,
+    pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[], u:Date.now()
+  };
+  S.marks.push(m);
+  if(navigator.vibrate) navigator.vibrate(28);
+  if(btn){ btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),160); }
+  renderLog(); renderClips(); drawRail(); save();
+}
+
+function renderLog(){
+  const el = $('#marklog');
+  $('#markpill').textContent = S.marks.length + (S.marks.length===1?' mark':' marks');
+  if(!S.marks.length){
+    el.innerHTML = '<div class="emptylog">Marks land here. Tap a pad the moment it happens — you can rename and trim later.</div>';
+    return;
+  }
+  el.innerHTML='';
+  [...S.marks].reverse().forEach(m=>{
+    const row = document.createElement('div'); row.className='logrow';
+    row.innerHTML = `<span class="swatch" style="background:${COLORS[m.color]?.hex}"></span>
+      <span>${fmtClock(m.t)}</span>
+      <span class="lbl">${esc(m.label)}</span>`;
+    const x = document.createElement('button');
+    x.className='x'; x.textContent='×'; x.setAttribute('aria-label','Remove mark');
+    x.addEventListener('click',()=>{
+      S.marks = S.marks.filter(k=>k.id!==m.id);
+      (S.tomb=S.tomb||[]).push(m.id);
+      renderLog(); renderClips(); drawRail(); save();
+    });
+    row.appendChild(x);
+    el.appendChild(row);
+  });
+  el.scrollTop = 0;
+}
+
+function tickClock(){
+  $('#clock').textContent = fmtClock(nowT());
+  clockRAF = requestAnimationFrame(tickClock);
+}
+
+$('#startbtn').addEventListener('click',()=>{
+  if(!clockRunning()){
+    const resuming = clock.acc>0;
+    clock.epoch = Date.now();
+    syncClockUI(); save();
+    toast(resuming ? 'Clock resumed from '+fmtClock(clock.acc)
+                   : 'Clock started — press record on the camera at the same time');
+  } else {
+    clock.acc = nowT(); clock.epoch = null;
+    syncClockUI(); save();
+    toast('Paused — the time is kept. Resume and it carries on');
+  }
+});
+
+$('#undobtn').addEventListener('click',()=>{
+  if(!S.marks.length) return toast('Nothing to undo');
+  (S.tomb=S.tomb||[]).push(S.marks.pop().id);
+  renderLog(); renderClips(); drawRail(); save();
+});
+
+$('#resetbtn').addEventListener('click',async ()=>{
+  if(!await confirmBox('This clears every mark, all markup and the clock for this session. It cannot be undone.')) return;
+  (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
+  S.marks=[]; curClip=null;
+  clock={epoch:null,acc:0}; syncClockUI();
+  renderLog(); renderClips(); drawRail(); save(); toast('Session cleared');
+});
+
+$('#savemarks').addEventListener('click',()=>{
+  download(new Blob([JSON.stringify({marks:S.marks, pads:S.pads, offset:S.offset},null,2)],{type:'application/json'}),
+    'chalkline-marks-'+stamp()+'.json');
+});
+
+/* pad editor */
+$('#editpads').addEventListener('click',()=>{
+  $('#padstext').value = S.pads.map(p=>`${p.label} | ${p.color} | ${p.pre} | ${p.post} | ${p.ask}`).join('\n');
+  $('#padsdlg').showModal();
+});
+$('#padscancel').addEventListener('click',()=>$('#padsdlg').close());
+$('#padssave').addEventListener('click',()=>{
+  const rows = $('#padstext').value.split('\n').map(l=>l.trim()).filter(Boolean);
+  const out=[];
+  for(const r of rows){
+    const p = r.split('|').map(s=>s.trim());
+    if(!p[0]) continue;
+    out.push({label:p[0], color:COLORS[p[1]]?p[1]:'ball', pre:+p[2]||6, post:+p[3]||6, ask:p[4]||''});
+  }
+  if(!out.length) return toast('Add at least one pad');
+  S.pads = out; renderPads(); renderTagBar(); save(); $('#padsdlg').close(); toast('Pads saved');
+});
+
+/* ============================================================
+   STUDIO — video
+   ============================================================ */
+const vid = $('#vid'), draw = $('#draw'), ctx = draw.getContext('2d');
+let curClip = null, loop = true, fps = 25;
+
+let vidURL=null;
+function loadVideo(file){
+  if(!file) return;
+  if(vidURL) URL.revokeObjectURL(vidURL);
+  vidURL = URL.createObjectURL(file);
+  vid.src = vidURL;
+  S.videoName = file.name;
+  $('#ctx').textContent = file.name;
+  $('#dropzone').classList.add('hide');
+  $('#vidbox').style.display='block';
+  vid.addEventListener('loadedmetadata', ()=>{ fitCanvas(); drawRail(); updateTC(); }, {once:true});
+  save();
+}
+$('#vidfile').addEventListener('change',e=>loadVideo(e.target.files[0]));
+['dragover','drop'].forEach(ev=>document.addEventListener(ev,e=>{
+  e.preventDefault();
+  if(ev==='drop'){
+    const f=[...e.dataTransfer.files];
+    const v=f.find(x=>x.type.startsWith('video/'));
+    const j=f.find(x=>x.name.endsWith('.json'));
+    if(v) loadVideo(v);
+    if(j) readMarksFile(j);
+  }
+}));
+
+function fitCanvas(){
+  if(!vid.videoWidth) return;
+  const r = vid.getBoundingClientRect();
+  draw.width = Math.round(r.width); draw.height = Math.round(r.height);
+  render();
+}
+window.addEventListener('resize', fitCanvas);
+window.addEventListener('orientationchange', ()=>setTimeout(fitCanvas,250));
+
+/* ---------- remembering the video between visits ----------
+   Marks and markup live in storage, but a video file can't — it's gigabytes on
+   disk. What we can keep is a handle to it, so coming back is one click rather
+   than navigating the folder tree again. Chrome and Edge only; Safari falls
+   back to picking the file each time. */
+const IDB = {
+  open(){
+    return new Promise((res,rej)=>{
+      const r=indexedDB.open('chalkline',1);
+      r.onupgradeneeded=()=>r.result.createObjectStore('kv');
+      r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error);
+    });
+  },
+  async put(k,v){
+    try{
+      const db=await IDB.open();
+      await new Promise((res,rej)=>{
+        const t=db.transaction('kv','readwrite');
+        t.objectStore('kv').put(v,k);
+        t.oncomplete=res; t.onerror=()=>rej(t.error);
+      });
+    }catch(e){}
+  },
+  async get(k){
+    try{
+      const db=await IDB.open();
+      return await new Promise((res,rej)=>{
+        const t=db.transaction('kv','readonly');
+        const q=t.objectStore('kv').get(k);
+        q.onsuccess=()=>res(q.result); q.onerror=()=>rej(q.error);
+      });
+    }catch(e){ return null; }
+  }
+};
+
+let vidHandle = null;
+const canHandle = typeof window.showOpenFilePicker === 'function';
+
+async function pickVideo(){
+  if(canHandle){
+    try{
+      const [hnd] = await window.showOpenFilePicker({
+        types:[{description:'Video', accept:{'video/*':['.mp4','.mov','.m4v','.webm','.mkv']}}],
+        multiple:false
+      });
+      vidHandle = hnd;
+      await IDB.put('videoHandle', hnd);
+      loadVideo(await hnd.getFile());
+      return;
+    }catch(e){ if(e && e.name==='AbortError') return; /* else fall through */ }
+  }
+  $('#vidfile').click();
+}
+
+async function reopenVideo(){
+  if(!vidHandle) return;
+  try{
+    let perm = await vidHandle.queryPermission({mode:'read'});
+    if(perm!=='granted') perm = await vidHandle.requestPermission({mode:'read'});
+    if(perm!=='granted') return toast('Permission declined — choose the file instead');
+    loadVideo(await vidHandle.getFile());
+  }catch(e){
+    toast('That file has moved or been renamed — choose it again');
+    $('#reopenvid').style.display='none';
+  }
+}
+
+$('#pickvid').addEventListener('click', pickVideo);
+$('#reopenvid').addEventListener('click', reopenVideo);
+
+(async function restoreHandle(){
+  if(!canHandle) return;
+  const hnd = await IDB.get('videoHandle');
+  if(!hnd) return;
+  vidHandle = hnd;
+  const b=$('#reopenvid');
+  b.textContent = 'Reopen ' + (hnd.name || 'last match');
+  b.style.display='inline-block';
+})();
+
+/* ---------- clip list ---------- */
+function clipStart(m){ return Math.max(0, m.t + (+S.offset||0) - m.pre); }
+function clipEnd(m){ return m.t + (+S.offset||0) + m.post; }
+
+function renderClips(){
+  const el = $('#cliplist'); el.innerHTML='';
+  if(!S.marks.length){
+    el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No marks yet. Tag a game on the Sideline tab, or load a marks file.</div>';
+    return;
+  }
+  [...S.marks].sort((a,b)=>a.t-b.t).forEach(m=>{
+    const b = document.createElement('button');
+    b.className='clip';
+    b.style.borderLeftColor = COLORS[m.color]?.hex;
+    b.setAttribute('aria-current', curClip && curClip.id===m.id);
+    const dur = Math.round(clipEnd(m)-clipStart(m));
+    b.innerHTML = `<div class="t">${fmtClock(clipStart(m))} · ${dur}s${m.shapes.length?' · '+m.shapes.length+' drawn':''}</div>
+      <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}</div>
+      ${m.caption?`<div class="cap">${esc(m.caption)}</div>`:''}`;
+    b.addEventListener('click',()=>selectClip(m));
+    el.appendChild(b);
+  });
+}
+
+function selectClip(m){
+  curClip = m;
+  $('#pre').value = m.pre; $('#post').value = m.post;
+  $('#caption').value = m.caption || '';
+  $('#askprompt').textContent = m.ask || 'Ask them what they saw before you tell them what you saw.';
+  const rc=$('#recat'); rc.disabled=false; rc.innerHTML='';
+  S.pads.forEach((p,i)=>{
+    const o=document.createElement('option');
+    o.value=i; o.textContent=p.label;
+    if(p.label===m.label) o.selected=true;
+    rc.appendChild(o);
+  });
+  if(![...rc.options].some(o=>o.selected)){
+    const o=document.createElement('option');
+    o.value='-1'; o.textContent=m.label+' (original)'; o.selected=true;
+    rc.prepend(o);
+  }
+  updateCap();
+  if(vid.src){ vid.currentTime = clipStart(m); loopArmed = true; }
+  if(isPhone()) setPanel('markup');
+  renderClips(); drawRail(); render();
+}
+
+$('#recat').addEventListener('change',()=>{
+  if(!curClip) return;
+  const i=+$('#recat').value;
+  const p=S.pads[i]; if(!p) return;
+  /* adopt the identity of the new category; keep any trims already made */
+  curClip.label=p.label; curClip.color=p.color; curClip.ask=p.ask; curClip.padIndex=i;
+  $('#askprompt').textContent=p.ask||'';
+  touch(curClip); renderClips(); renderLog(); drawRail(); save();
+  toast('Reclassified as '+p.label);
+});
+
+$('#pre').addEventListener('input',()=>{ if(curClip){ curClip.pre=+$('#pre').value||0; touch(curClip); renderClips(); drawRail(); save(); }});
+$('#post').addEventListener('input',()=>{ if(curClip){ curClip.post=+$('#post').value||0; touch(curClip); renderClips(); drawRail(); save(); }});
+$('#offset').addEventListener('input',()=>{ S.offset=+$('#offset').value||0; renderClips(); drawRail(); save(); });
+$('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value||25); save(); });
+
+$('#caption').addEventListener('input',()=>{ if(curClip){ curClip.caption=$('#caption').value; touch(curClip); updateCap(); renderClips(); save(); }});
+function updateCap(){
+  const w = $('#caption').value.trim().split(/\s+/).filter(Boolean).length;
+  const c = $('#capcount');
+  c.firstElementChild.textContent = w + (w===1?' word':' words');
+  c.classList.toggle('over', w>22);
+  c.lastElementChild.textContent = w>22 ? 'too long to land' : 'aim for 15';
+}
+
+$('#loadmarks').addEventListener('click',()=>{
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='.json,application/json';
+  inp.onchange=e=>readMarksFile(e.target.files[0]); inp.click();
+});
+function readMarksFile(f){
+  if(!f) return;
+  const r=new FileReader();
+  r.onload=()=>{
+    try{
+      const d=JSON.parse(r.result);
+      if(Array.isArray(d.marks)){
+        S.marks = d.marks.map(m=>({shapes:[],caption:'',...m}));
+        if(Array.isArray(d.pads)) S.pads=d.pads;
+        if(typeof d.offset==='number'){ S.offset=d.offset; $('#offset').value=d.offset; }
+        renderClips(); renderLog(); renderPads(); renderTagBar(); drawRail(); save();
+        toast(S.marks.length+' marks loaded');
+      } else toast('That file has no marks in it');
+    }catch(err){ toast('Could not read that file'); }
+  };
+  r.readAsText(f);
+}
+
+/* ---------- transport ---------- */
+$('#playbtn').addEventListener('click', togglePlay);
+function togglePlay(){ vid.paused ? vid.play() : vid.pause(); }
+vid.addEventListener('play', ()=>{ $('#playbtn').textContent='Pause'; loopRender(); });
+vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); });
+vid.addEventListener('timeupdate', updateTC);
+
+$$('[data-step]').forEach(b=>b.addEventListener('click',()=>{
+  vid.pause(); vid.currentTime += (+b.dataset.step)/fps; render();
+}));
+$$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
+  vid.playbackRate = +b.dataset.rate;
+  $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', x===b));
+}));
+$('#loopbtn').addEventListener('click',()=>{
+  loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
+});
+/* ---------- phone panel switch ---------- */
+function setPanel(p){
+  document.body.classList.remove('panel-clips','panel-markup');
+  document.body.classList.add('panel-'+p);
+  $$('#panelswitch button').forEach(b=>b.setAttribute('aria-pressed', b.dataset.panel===p));
+  if(p==='markup') requestAnimationFrame(fitCanvas);
+}
+$$('#panelswitch button').forEach(b=>b.addEventListener('click',()=>setPanel(b.dataset.panel)));
+setPanel('clips');
+const isPhone = ()=>window.matchMedia('(max-width:900px)').matches;
+
+/* ---------- tag as you watch ----------
+   The other way round from the sideline: play the match back and hit a category
+   the moment you see something. Keys sit on the left hand so the right stays on
+   the transport. */
+const TAGKEYS = 'qwertyuiop';
+
+function renderTagBar(){
+  const el=$('#tagpads'); el.innerHTML='';
+  S.pads.forEach((p,i)=>{
+    const b=document.createElement('button');
+    b.className='tagpad';
+    b.style.borderLeftColor=(COLORS[p.color]||COLORS.ball).hex;
+    b.innerHTML=`<span class="lb">${esc(p.label)}</span>`+
+      (TAGKEYS[i]?`<span class="kc">${TAGKEYS[i]}</span>`:'');
+    b.addEventListener('click',()=>tagNow(i,b));
+    el.appendChild(b);
+  });
+}
+
+function tagNow(i, btn){
+  if(!vid.src||!vid.duration) return toast('Load a video first');
+  const p=S.pads[i]; if(!p) return;
+  /* you react after you see it, so wind back a touch — otherwise every mark
+     lands late and the pre-roll has to absorb it */
+  const lag = vid.paused ? 0 : (+$('#taglag').value||0);
+  const at = Math.max(0, vid.currentTime - lag) - (+S.offset||0);
+  S.marks.push({
+    id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
+    t:at, padIndex:i, label:p.label, color:p.color,
+    pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[], u:Date.now()
+  });
+  btn = btn || $('#tagpads').children[i];
+  if(btn){ btn.classList.add('hit'); setTimeout(()=>btn.classList.remove('hit'),150); }
+  loopArmed = false;
+  renderClips(); renderLog(); drawRail(); save();
+  toast(p.label+' at '+fmtClock(at));
+}
+
+let exporting = false, loopArmed = false;
+function updateTC(){
+  $('#tcode').innerHTML = fmtTC(vid.currentTime)+' <small>/ '+fmtClock(vid.duration||0)+'</small>';
+  if(vid.duration) $('#railhead').style.left = (vid.currentTime/vid.duration*100)+'%';
+  /* Loop only while you're actually working a clip. Watching the match end to
+     end with an old clip still selected must not snap you backwards. */
+  if(loopArmed && curClip && vid.currentTime < clipStart(curClip)-1) loopArmed=false;
+  if(!exporting && loopArmed && curClip && !vid.paused && loop
+     && vid.currentTime >= clipEnd(curClip) && vid.currentTime < clipEnd(curClip)+2){
+    vid.currentTime = clipStart(curClip);
+  }
+}
+
+function drawRail(){
+  const rail=$('#rail');
+  [...rail.querySelectorAll('.railtick')].forEach(n=>n.remove());
+  const D = vid.duration || 0;
+  if(D){
+    S.marks.forEach(m=>{
+      const d=document.createElement('div');
+      d.className='railtick'+(curClip&&curClip.id===m.id?' sel':'');
+      d.style.left=((m.t+(+S.offset||0))/D*100)+'%';
+      d.style.background=COLORS[m.color]?.hex;
+      rail.appendChild(d);
+    });
+    if(curClip){
+      const w=$('#railwin'); w.style.display='block';
+      w.style.left=(clipStart(curClip)/D*100)+'%';
+      w.style.width=((clipEnd(curClip)-clipStart(curClip))/D*100)+'%';
+    } else $('#railwin').style.display='none';
+  } else $('#railwin').style.display='none';
+}
+$('#rail').addEventListener('click',e=>{
+  if(!vid.duration) return;
+  const r=e.currentTarget.getBoundingClientRect();
+  vid.currentTime = (e.clientX-r.left)/r.width*vid.duration;
+  loopArmed = false;
+  render();
+});
+
+/* ============================================================
+   TELESTRATION
+   ============================================================ */
+const TOOLS = [
+  {id:'spot',  name:'Spotlight', key:'1', icon:'<circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'},
+  {id:'circle',name:'Circle',    key:'2', icon:'<ellipse cx="12" cy="12" rx="9" ry="6"/>'},
+  {id:'arrow', name:'Run',       key:'3', icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
+  {id:'option',name:'Option',    key:'4', icon:'<path d="M3 18L21 6" stroke-dasharray="4 3"/><path d="M14 6h7v7"/>'},
+  {id:'curve', name:'Curve',     key:'5', icon:'<path d="M3 19C7 6 16 4 21 6"/><path d="M15 3l6 3-3 6"/>'},
+  {id:'zone',  name:'Space',     key:'6', icon:'<path d="M4 8h16v8H4z"/><path d="M4 12h16" stroke-dasharray="3 3"/>'},
+  {id:'pen',   name:'Pen',       key:'7', icon:'<path d="M3 20c4-1 5-9 9-9s4 6 9 4"/>'},
+  {id:'disc',  name:'Marker',    key:'8', icon:'<circle cx="12" cy="12" r="8"/><path d="M12 9v6M9 12h6"/>'},
+  {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'},
+  {id:'erase', name:'Erase',     key:'0', icon:'<path d="M4 18h16"/><path d="M7 15L15 7l4 4-8 8z"/>'}
+];
+let tool='spot', color='ours', discN=1;
+
+function renderTools(){
+  const g=$('#toolgrid'); g.innerHTML='';
+  TOOLS.forEach(t=>{
+    const b=document.createElement('button');
+    b.className='tool'; b.setAttribute('aria-pressed', t.id===tool); b.title=t.name+'  ('+t.key+')';
+    b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
+      stroke-linecap="round" stroke-linejoin="round">${t.icon}</svg><span>${t.name}</span>`;
+    b.addEventListener('click',()=>{ tool=t.id; renderTools(); });
+    g.appendChild(b);
+  });
+  const sw=$('#swatches'); sw.innerHTML='';
+  ['ours','theirs','space','path','ball'].forEach(k=>{
+    const b=document.createElement('button');
+    b.className='sw'; b.setAttribute('aria-pressed', k===color);
+    b.innerHTML=`<i style="background:${COLORS[k].hex}"></i><span>${COLORS[k].name}</span>`;
+    b.addEventListener('click',()=>{ color=k; renderTools(); });
+    sw.appendChild(b);
+  });
+}
+
+/* shapes stored in normalised 0..1 coords so they survive resize + export */
+let dragging=null;
+function pt(e){
+  const r=draw.getBoundingClientRect();
+  return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
+}
+draw.addEventListener('pointerdown', e=>{
+  if(!curClip) return toast('Pick a clip first');
+  draw.setPointerCapture(e.pointerId);
+  const p=pt(e);
+  if(tool==='erase'){ eraseAt(p); return; }
+  if(tool==='disc'){
+    ask('Marker label', String(discN)).then(n=>{
+      if(n===null || n==='') return;
+      curClip.shapes.push({tool:'disc',color,a:p,text:n});
+      discN=(+n||discN)+1; commit();
+    });
+    return;
+  }
+  if(tool==='text'){
+    ask('Text to show').then(t=>{
+      if(!t) return;
+      curClip.shapes.push({tool:'text',color,a:p,text:t}); commit();
+    });
+    return;
+  }
+  if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
+  dragging={tool,color,a:p,b:p};
+});
+draw.addEventListener('pointermove', e=>{
+  if(!dragging) return;
+  const p=pt(e);
+  if(dragging.tool==='pen') dragging.pts.push(p); else dragging.b=p;
+  render();
+});
+draw.addEventListener('pointerup', ()=>{
+  if(!dragging) return;
+  const d=dragging; dragging=null;
+  const tiny = d.tool==='pen' ? d.pts.length<3 : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
+  if(!tiny){ curClip.shapes.push(d); commit(); } else render();
+});
+function commit(){ if(curClip) touch(curClip); render(); renderClips(); save(); }
+
+function eraseAt(p){
+  if(!curClip) return;
+  for(let i=curClip.shapes.length-1;i>=0;i--){
+    const s=curClip.shapes[i];
+    const pts = s.pts || [s.a,s.b].filter(Boolean);
+    if(pts.some(q=>q && Math.hypot(q.x-p.x,q.y-p.y)<0.045)){ curClip.shapes.splice(i,1); commit(); return; }
+  }
+}
+$('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; commit(); }});
+
+/* ---------- rendering ---------- */
+function render(){ paint(ctx, draw.width, draw.height, curClip ? curClip.shapes : [], dragging); }
+
+function loopRender(){
+  if(vid.paused) return;
+  render();
+  requestAnimationFrame(loopRender);
+}
+
+function paint(c, W, H, shapes, extra){
+  c.clearRect(0,0,W,H);
+  const all = extra ? shapes.concat([extra]) : shapes;
+  const scale = Math.max(1, W/900);
+  const lw = 3.2*scale;
+
+  /* zones sit under the dimming layer */
+  all.filter(s=>s.tool==='zone').forEach(s=>{
+    const x=Math.min(s.a.x,s.b.x)*W, y=Math.min(s.a.y,s.b.y)*H;
+    const w=Math.abs(s.b.x-s.a.x)*W, h=Math.abs(s.b.y-s.a.y)*H;
+    c.save();
+    const zc=(COLORS[s.color]||COLORS.ball).hex;
+    c.fillStyle=hexA(zc,.22); c.fillRect(x,y,w,h);
+    c.strokeStyle=zc; c.lineWidth=lw*.7; c.setLineDash([9*scale,7*scale]);
+    c.strokeRect(x,y,w,h); c.restore();
+  });
+
+  /* spotlight: dim everything, punch holes — composited off-screen so zones survive */
+  const spots = all.filter(s=>s.tool==='spot');
+  if(spots.length){
+    const off=document.createElement('canvas'); off.width=W; off.height=H;
+    const o=off.getContext('2d');
+    o.fillStyle='rgba(5,11,8,.72)'; o.fillRect(0,0,W,H);
+    o.globalCompositeOperation='destination-out';
+    spots.forEach(s=>{
+      const cx=s.a.x*W, cy=s.a.y*H;
+      const r=Math.max(Math.hypot((s.b.x-s.a.x)*W,(s.b.y-s.a.y)*H), 18*scale);
+      const g=o.createRadialGradient(cx,cy,r*.55,cx,cy,r);
+      g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
+      o.fillStyle=g; o.beginPath(); o.arc(cx,cy,r,0,7); o.fill();
+    });
+    c.drawImage(off,0,0);
+    /* thin ring so the lit player reads as chosen, not just bright */
+    spots.forEach(s=>{
+      const cx=s.a.x*W, cy=s.a.y*H;
+      const r=Math.max(Math.hypot((s.b.x-s.a.x)*W,(s.b.y-s.a.y)*H), 18*scale);
+      c.save(); c.strokeStyle=hexA((COLORS[s.color]||COLORS.ball).hex,.8); c.lineWidth=lw*.6;
+      c.beginPath(); c.arc(cx,cy,r*.82,0,7); c.stroke(); c.restore();
+    });
+  }
+
+  all.forEach(s=>{
+    if(s.tool==='zone'||s.tool==='spot') return;
+    const col=(COLORS[s.color]||COLORS.ball).hex;
+    c.save();
+    c.strokeStyle=col; c.fillStyle=col; c.lineWidth=lw;
+    c.lineCap='round'; c.lineJoin='round';
+    c.shadowColor='rgba(0,0,0,.6)'; c.shadowBlur=5*scale;
+
+    if(s.tool==='circle'){
+      const cx=(s.a.x+s.b.x)/2*W, cy=(s.a.y+s.b.y)/2*H;
+      const rx=Math.abs(s.b.x-s.a.x)/2*W, ry=Math.abs(s.b.y-s.a.y)/2*H;
+      c.beginPath(); c.ellipse(cx,cy,Math.max(rx,6),Math.max(ry,6),0,0,7); c.stroke();
+    }
+    else if(s.tool==='pen'){
+      c.beginPath();
+      s.pts.forEach((p,i)=> i? c.lineTo(p.x*W,p.y*H) : c.moveTo(p.x*W,p.y*H));
+      c.stroke();
+    }
+    else if(s.tool==='arrow'||s.tool==='option'){
+      if(s.tool==='option') c.setLineDash([11*scale,8*scale]);
+      line(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H);
+      c.setLineDash([]);
+      head(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H,scale);
+    }
+    else if(s.tool==='curve'){
+      const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+      const mx=(ax+bx)/2, my=(ay+by)/2;
+      const dx=bx-ax, dy=by-ay;
+      const cx=mx-dy*0.26, cy=my+dx*0.26;
+      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+      head(c,cx,cy,bx,by,scale);
+    }
+    else if(s.tool==='disc'){
+      const r=13*scale;
+      c.beginPath(); c.arc(s.a.x*W,s.a.y*H,r,0,7); c.fill();
+      c.shadowBlur=0; c.fillStyle='#0C1711';
+      c.font=`600 ${15*scale}px "IBM Plex Mono",monospace`;
+      c.textAlign='center'; c.textBaseline='middle';
+      c.fillText(s.text, s.a.x*W, s.a.y*H+scale*.5);
+    }
+    else if(s.tool==='text'){
+      c.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
+      c.textAlign='left'; c.textBaseline='middle';
+      const w=c.measureText(s.text).width;
+      c.shadowBlur=0; c.fillStyle='rgba(6,13,10,.82)';
+      c.fillRect(s.a.x*W-6*scale, s.a.y*H-14*scale, w+12*scale, 28*scale);
+      c.fillStyle=col; c.fillText(s.text, s.a.x*W, s.a.y*H);
+    }
+    c.restore();
+  });
+}
+function line(c,x1,y1,x2,y2){ c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
+function head(c,x1,y1,x2,y2,scale){
+  const a=Math.atan2(y2-y1,x2-x1), L=15*scale;
+  c.beginPath(); c.moveTo(x2,y2);
+  c.lineTo(x2-L*Math.cos(a-0.42), y2-L*Math.sin(a-0.42));
+  c.lineTo(x2-L*Math.cos(a+0.42), y2-L*Math.sin(a+0.42));
+  c.closePath(); c.fill();
+}
+function hexA(hex,a){
+  const n=parseInt(hex.slice(1),16);
+  return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;
+}
+
+/* ============================================================
+   EXPORT
+   ============================================================ */
+function exportCanvas(){
+  const cap = 1280;
+  const w = Math.min(vid.videoWidth||1280, cap);
+  const h = Math.round((vid.videoHeight/vid.videoWidth)*w) || 720;
+  const cv=document.createElement('canvas'); cv.width=w; cv.height=h - (h%2);
+  return cv;
+}
+function paintCaption(c,W,H,text){
+  if(!text) return;
+  const s=Math.max(1,W/900);
+  c.save();
+  c.font=`600 ${20*s}px "IBM Plex Sans",sans-serif`;
+  const pad=14*s, lines=wrap(c,text,W-pad*4);
+  const bh=lines.length*26*s+pad*1.4;
+  c.fillStyle='rgba(6,13,10,.86)';
+  c.fillRect(0,H-bh,W,bh);
+  c.fillStyle='#FFC93C'; c.fillRect(0,H-bh,4*s,bh);
+  c.fillStyle='#EEF3EC'; c.textBaseline='top';
+  lines.forEach((l,i)=>c.fillText(l, pad*2, H-bh+pad*.7+i*26*s));
+  c.restore();
+}
+function wrap(c,text,max){
+  const words=text.split(/\s+/), out=[]; let cur='';
+  for(const w of words){
+    const t=cur?cur+' '+w:w;
+    if(c.measureText(t).width>max && cur){ out.push(cur); cur=w; } else cur=t;
+  }
+  if(cur) out.push(cur);
+  return out;
+}
+
+$('#exportpng').addEventListener('click',()=>{
+  if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
+  const cv=exportCanvas(), c=cv.getContext('2d');
+  c.drawImage(vid,0,0,cv.width,cv.height);
+  paint(c,cv.width,cv.height,curClip.shapes,null);
+  paintCaption(c,cv.width,cv.height,curClip.caption);
+  cv.toBlob(b=>download(b, safe(curClip.label)+'-'+Math.round(curClip.t)+'s.png'), 'image/png');
+  toast('Still saved');
+});
+
+$('#exportclip').addEventListener('click', exportClip);
+async function exportClip(){
+  if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
+  if(exporting) return toast('Already exporting — give it a moment');
+  if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
+
+  const cv=exportCanvas(), c=cv.getContext('2d');
+  const stream=cv.captureStream(30);
+  try{
+    const vs = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
+    const at = vs && vs.getAudioTracks()[0];
+    if(at) stream.addTrack(at);
+  }catch(e){}
+
+  /* Safari's recorder speaks mp4, not webm — ask what's supported and name
+     the file to match what actually comes out */
+  const types=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
+  const rec=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:4.5e6}:undefined);
+  const chunks=[];
+  rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+
+  const burnAll = $('#burnmode').value==='all';
+  const hold = +$('#hold').value||0;
+  const start=clipStart(curClip), end=clipEnd(curClip);
+  const wasRate=vid.playbackRate;
+
+  exporting = true;
+  $('#rec').classList.add('on');
+  try{
+    vid.pause(); vid.currentTime=start; vid.playbackRate=1;
+    await new Promise(r=>vid.addEventListener('seeked',r,{once:true}));
+
+    rec.start(200);
+
+    const frame=(withShapes)=>{
+      c.drawImage(vid,0,0,cv.width,cv.height);
+      if(withShapes) paint(c,cv.width,cv.height,curClip.shapes,null);
+      paintCaption(c,cv.width,cv.height,curClip.caption);
+    };
+
+    /* hold the annotated freeze frame first — the coaching point, then the movement */
+    if(hold>0){
+      const t0=performance.now();
+      await new Promise(res=>{
+        (function h(){
+          frame(true);
+          performance.now()-t0 < hold*1000 ? requestAnimationFrame(h) : res();
+        })();
+      });
+    }
+
+    await vid.play();
+    await new Promise(res=>{
+      (function f(){
+        frame(burnAll);
+        if(vid.currentTime>=end || vid.ended){ res(); } else requestAnimationFrame(f);
+      })();
+    });
+
+    vid.pause();
+    rec.stop();
+    await new Promise(r=>rec.onstop=r);
+
+    const isMp4 = (rec.mimeType||mime||'').includes('mp4');
+    download(new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
+      safe(curClip.label)+'-'+Math.round(curClip.t)+'s.'+(isMp4?'mp4':'webm'));
+    toast('Clip exported');
+  } catch(err){
+    try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
+    toast('Export failed — try the ffmpeg cut list instead');
+  } finally {
+    exporting = false;
+    vid.playbackRate=wasRate;
+    $('#rec').classList.remove('on');
+  }
+}
+
+/* ============================================================
+   REEL — every clip, one file
+   ============================================================ */
+function paintTitleCard(c,W,H,m,i,total){
+  const s=Math.max(1,W/900);
+  c.fillStyle='#0C1711'; c.fillRect(0,0,W,H);
+  const col=(COLORS[m.color]||COLORS.ball).hex;
+  c.fillStyle=col; c.fillRect(0,H*0.30,7*s,H*0.34);
+
+  c.textBaseline='top'; c.textAlign='left';
+  const x=W*0.09;
+  c.fillStyle='#93A79B';
+  c.font=`500 ${13*s}px "IBM Plex Mono",monospace`;
+  c.fillText(`${String(i+1).padStart(2,'0')} / ${String(total).padStart(2,'0')}   ${fmtClock(clipStart(m))}`, x, H*0.31);
+
+  c.fillStyle='#EEF3EC';
+  c.font=`600 ${44*s}px "Barlow Condensed",sans-serif`;
+  c.fillText(String(m.label).toUpperCase(), x, H*0.375);
+
+  if(m.caption){
+    c.fillStyle='#FFC93C';
+    c.font=`500 ${21*s}px "IBM Plex Sans",sans-serif`;
+    wrap(c, m.caption, W*0.78).slice(0,3).forEach((l,n)=>
+      c.fillText(l, x, H*0.50 + n*29*s));
+  }
+}
+
+async function compileReel(){
+  if(!vid.videoWidth) return toast('Load the match first');
+  if(exporting) return toast('Already exporting — give it a moment');
+  const list=[...S.marks].sort((a,b)=>a.t-b.t);
+  if(!list.length) return toast('No clips to compile');
+
+  const total = list.reduce((n,m)=>n+(clipEnd(m)-clipStart(m)),0);
+  const cards = $('#titlecards').checked;
+  const hold  = +$('#hold').value||0;
+  const mins  = Math.ceil((total + list.length*(hold+(cards?2.5:0)))/60);
+  if(!await confirmBox(
+      `${list.length} clips, roughly ${mins} minute${mins===1?'':'s'} of video. `+
+      `It records in real time, so it will take about that long and the tab has to stay open and visible. Start now?`))
+    return;
+
+  const cv=exportCanvas(), c=cv.getContext('2d');
+  const stream=cv.captureStream(30);
+  try{
+    const vs = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
+    const at = vs && vs.getAudioTracks()[0];
+    if(at) stream.addTrack(at);
+  }catch(e){}
+
+  const types=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
+  const rec=new MediaRecorder(stream, mime?{mimeType:mime,videoBitsPerSecond:5e6}:undefined);
+  const chunks=[]; rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+
+  const burnAll = $('#burnmode').value==='all';
+  const wasRate = vid.playbackRate;
+  const status = $('#rec').querySelector('span');
+
+  exporting=true; loopArmed=false;
+  $('#rec').classList.add('on');
+
+  const runFor = (ms, drawFn) => new Promise(res=>{
+    const t0=performance.now();
+    (function step(){ drawFn(); performance.now()-t0<ms ? requestAnimationFrame(step) : res(); })();
+  });
+
+  try{
+    vid.pause(); vid.playbackRate=1;
+    rec.start(400);
+
+    for(let i=0;i<list.length;i++){
+      const m=list[i];
+      status.textContent = `Recording ${i+1} of ${list.length} — ${m.label}`;
+
+      vid.currentTime = clipStart(m);
+      await new Promise(r=>vid.addEventListener('seeked',r,{once:true}));
+
+      if(cards) await runFor(2500, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
+
+      const frame=(withShapes)=>{
+        c.drawImage(vid,0,0,cv.width,cv.height);
+        if(withShapes) paint(c,cv.width,cv.height,m.shapes,null);
+        paintCaption(c,cv.width,cv.height,m.caption);
+      };
+
+      if(hold>0 && m.shapes.length) await runFor(hold*1000, ()=>frame(true));
+
+      await vid.play();
+      const end=clipEnd(m);
+      await new Promise(res=>{
+        (function f(){
+          frame(burnAll);
+          (vid.currentTime>=end || vid.ended) ? res() : requestAnimationFrame(f);
+        })();
+      });
+      vid.pause();
+    }
+
+    rec.stop();
+    await new Promise(r=>rec.onstop=r);
+    const isMp4=(rec.mimeType||mime||'').includes('mp4');
+    download(new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
+      'chalkline-reel-'+stamp()+'.'+(isMp4?'mp4':'webm'));
+    toast('Reel exported — '+list.length+' clips');
+  }catch(err){
+    try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
+    console.error(err);
+    toast('Reel failed partway — the ffmpeg route is more reliable for long ones');
+  }finally{
+    exporting=false; vid.playbackRate=wasRate;
+    $('#rec').classList.remove('on');
+    status.textContent='Recording clip — leave this tab open';
+  }
+}
+$('#reelbtn').addEventListener('click', compileReel);
+
+$('#exportall').addEventListener('click',()=>{
+  const name = S.videoName || 'match.mp4';
+  const sorted=[...S.marks].sort((a,b)=>a.t-b.t);
+  let txt = '# Chalkline cut list — '+stamp()+'\n# source: '+name+'\n';
+  txt += '# Run these where the match file is. Needs ffmpeg.\n\n';
+  sorted.forEach((m,i)=>{
+    const s=clipStart(m), d=(clipEnd(m)-s).toFixed(1);
+    const cap=(m.caption||'').replace(/\s+/g,' ').trim();
+    txt += `# ${i+1}. ${m.label}${cap?' — '+cap:''}\n`;
+    txt += `ffmpeg -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 23 -preset veryfast `
+        +  `-vf "scale=1280:-2" -c:a aac -b:a 128k "${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4"\n\n`;
+  });
+
+  txt += '\n# ---- Join them all into one reel ----\n';
+  txt += '# Save the list below as reel.txt in the same folder:\n#\n';
+  sorted.forEach((m,i)=>{ txt += `#   file '${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4'\n`; });
+  txt += '#\n# Then run:\n';
+  txt += 'ffmpeg -f concat -safe 0 -i reel.txt -c copy chalkline-reel.mp4\n\n';
+  txt += '# Windows one-liner that writes the list for you, from the same folder:\n';
+  txt += '#   (for %i in (*.mp4) do @echo file \'%i\') > reel.txt\n';
+
+  download(new Blob([txt],{type:'text/plain'}), 'chalkline-cuts-'+stamp()+'.txt');
+  download(new Blob([JSON.stringify({...S},null,2)],{type:'application/json'}), 'chalkline-session-'+stamp()+'.json');
+  toast('Cut list and session saved');
+});
+
+function safe(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
+function stamp(){ const d=new Date(); return d.toISOString().slice(0,10); }
+function download(blob,name){
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+}
+
+/* ============================================================
+   KEYS
+   ============================================================ */
+document.addEventListener('keydown',e=>{
+  if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  if(!$('#studio').classList.contains('on')) return;
+  if((e.metaKey||e.ctrlKey) && e.key==='z'){
+    e.preventDefault();
+    if(curClip&&curClip.shapes.length){ curClip.shapes.pop(); commit(); }
+    return;
+  }
+  const t=TOOLS.find(x=>x.key===e.key);
+  if(t){ tool=t.id; renderTools(); return; }
+  const ti=TAGKEYS.indexOf(e.key.toLowerCase());
+  if(ti>-1 && ti<S.pads.length){ e.preventDefault(); tagNow(ti); return; }
+  if(e.key===' '){ e.preventDefault(); togglePlay(); }
+  else if(e.key==='ArrowLeft'){ e.preventDefault(); vid.pause(); vid.currentTime-=1/fps; render(); }
+  else if(e.key==='ArrowRight'){ e.preventDefault(); vid.pause(); vid.currentTime+=1/fps; render(); }
+  else if(e.key==='['||e.key===']'){
+    const sorted=[...S.marks].sort((a,b)=>a.t-b.t);
+    const i=sorted.findIndex(m=>curClip&&m.id===curClip.id);
+    const n=e.key==='[' ? Math.max(0,i-1) : Math.min(sorted.length-1,i+1);
+    if(sorted[n]) selectClip(sorted[n]);
+  }
+});
+
+/* ============================================================
+   SYNC — handoff codes + optional live endpoint
+   ============================================================ */
+const Sync = {url:'', key:'', auto:false, busy:false};
+
+/* every mark carries an edit stamp so merges can pick a winner */
+function touch(m){ m.u = Date.now(); return m; }
+
+function payload(){
+  return {v:1, pads:S.pads, marks:S.marks, offset:S.offset,
+          tomb:S.tomb||[], device:deviceName(), at:Date.now()};
+}
+function deviceName(){
+  return /Mobi|Android|iPhone/i.test(navigator.userAgent) ? 'phone' : 'laptop';
+}
+
+/* Merge, never clobber. Newest edit wins per mark; markup is preserved
+   because a phone push carries no shapes and loses on timestamp. */
+function merge(incoming){
+  if(!incoming || !Array.isArray(incoming.marks)) return 0;
+  const fresh = S.marks.length===0;               // brand-new device adopts pads
+  const before = S.marks.length;
+  const tomb = new Set([...(S.tomb||[]), ...(incoming.tomb||[])]);
+  const tombGrew = tomb.size > (S.tomb||[]).length;
+  S.tomb = [...tomb];
+  const byId = new Map();
+  S.marks.forEach(m=>byId.set(m.id,m));
+  let added=0, updated=0;
+  incoming.marks.forEach(n=>{
+    if(tomb.has(n.id)) return;
+    const cur = byId.get(n.id);
+    if(!cur){ byId.set(n.id, {shapes:[],caption:'',u:0,...n}); added++; return; }
+    if((n.u||0) > (cur.u||0)){
+      /* keep local markup if the incoming copy has none */
+      const shapes = (n.shapes && n.shapes.length) ? n.shapes : cur.shapes;
+      const caption = n.caption || cur.caption;
+      byId.set(n.id, {...cur, ...n, shapes, caption}); updated++;
+    }
+  });
+  S.marks = [...byId.values()].filter(m=>!tomb.has(m.id));
+  if(fresh && incoming.pads) S.pads = incoming.pads;
+  if(curClip && !S.marks.some(m=>m.id===curClip.id)) curClip=null;
+  const changed = added || updated || tombGrew || S.marks.length!==before;
+  renderLog(); renderClips(); renderPads(); renderTagBar(); drawRail(); save(true);
+  merge.changed = !!changed;
+  return added;
+}
+
+/* ---- compact handoff code: JSON → deflate → base64url ---- */
+async function encodeCode(){
+  const json = JSON.stringify(payload());
+  const bytes = new TextEncoder().encode(json);
+  let out = bytes;
+  if(typeof CompressionStream !== 'undefined'){
+    const cs = new CompressionStream('deflate-raw');
+    const buf = await new Response(new Blob([bytes]).stream().pipeThrough(cs)).arrayBuffer();
+    out = new Uint8Array(buf);
+  }
+  let bin=''; out.forEach(b=>bin+=String.fromCharCode(b));
+  const tag = out===bytes ? 'CLR' : 'CLZ';
+  return tag + btoa(bin).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+}
+async function decodeCode(code){
+  code = code.trim().replace(/\s+/g,'');
+  const tag = code.slice(0,3);
+  if(tag!=='CLZ' && tag!=='CLR') throw new Error('not a Chalkline code');
+  const b64 = code.slice(3).replace(/-/g,'+').replace(/_/g,'/');
+  const bin = atob(b64 + '==='.slice((b64.length+3)%4));
+  const bytes = Uint8Array.from(bin, c=>c.charCodeAt(0));
+  if(tag==='CLR') return JSON.parse(new TextDecoder().decode(bytes));
+  const ds = new DecompressionStream('deflate-raw');
+  const buf = await new Response(new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer();
+  return JSON.parse(new TextDecoder().decode(buf));
+}
+
+$('#makecode').addEventListener('click', async ()=>{
+  if(!S.marks.length) return toast('No marks to send');
+  const code = await encodeCode();
+  $('#codebox').value = code;
+  try{ await navigator.clipboard.writeText(code); toast('Code copied — paste it on the other device'); }
+  catch(e){ $('#codebox').select(); toast('Code ready — copy it from the box'); }
+});
+$('#sharecode').addEventListener('click', async ()=>{
+  if(!S.marks.length) return toast('No marks to send');
+  const code = await encodeCode();
+  if(navigator.share){ try{ await navigator.share({title:'Chalkline marks', text:code}); }catch(e){} }
+  else { $('#codebox').value=code; toast('Sharing not available — copy the code instead'); }
+});
+$('#applycode').addEventListener('click', async ()=>{
+  const v = $('#codebox').value.trim();
+  if(!v) return toast('Paste a code first');
+  try{
+    const n = merge(await decodeCode(v));
+    toast(n ? n+' marks brought in' : 'Already up to date');
+    $('#codebox').value='';
+  }catch(e){ toast('That code did not read — check it copied whole'); }
+});
+
+/* ---- live endpoint ---- */
+function syncState(cls, text){
+  $('#syncdot').className = 'dotstate '+cls;
+  $('#synctext').textContent = text;
+}
+function endpoint(){
+  if(!Sync.url || !Sync.key) return null;
+  return Sync.url.replace(/\/+$/,'') + '/' + encodeURIComponent(Sync.key);
+}
+async function push(silent){
+  const u = endpoint(); if(!u) return silent||toast('Set an endpoint and session name first');
+  syncState('busy','pushing…');
+  try{
+    const r = await fetch(u, {method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload())});
+    if(!r.ok) throw new Error(r.status);
+    syncState('on', Sync.key+' · pushed '+clockNow());
+    if(!silent) toast('Pushed to '+Sync.key);
+  }catch(e){ syncState('bad','push failed — check the endpoint'); if(!silent) toast('Push failed'); }
+}
+async function pull(silent){
+  const u = endpoint(); if(!u) return silent||toast('Set an endpoint and session name first');
+  syncState('busy','pulling…');
+  try{
+    const r = await fetch(u, {cache:'no-store'});
+    if(r.status===404){ syncState('on', Sync.key+' · nothing up there yet'); return; }
+    if(!r.ok) throw new Error(r.status);
+    const n = merge(await r.json());
+    syncState('on', Sync.key+' · pulled '+clockNow());
+    if(merge.changed) push(true);
+    if(!silent) toast(n ? n+' new marks' : 'Already up to date');
+  }catch(e){ syncState('bad','pull failed — check the endpoint'); if(!silent) toast('Pull failed'); }
+}
+function clockNow(){ const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); }
+
+let pushT;
+function autoPush(){
+  if(!Sync.auto || !endpoint()) return;
+  clearTimeout(pushT); pushT = setTimeout(()=>push(true), 2500);
+}
+window.addEventListener('focus', ()=>{ if(Sync.auto && endpoint()) pull(true); });
+setInterval(()=>{ if(Sync.auto && endpoint() && !document.hidden) pull(true); }, 20000);
+
+/* dialog wiring */
+function openSync(){
+  $('#syncurl').value=Sync.url; $('#synckey').value=Sync.key; $('#syncauto').checked=Sync.auto;
+  $('#syncdlg').showModal();
+}
+$('#syncbtn').addEventListener('click', openSync);
+$('#syncbtn2').addEventListener('click', openSync);
+$('#syncclose').addEventListener('click', ()=>$('#syncdlg').close());
+$('#pushbtn').addEventListener('click', ()=>push(false));
+$('#pullbtn').addEventListener('click', ()=>pull(false));
+['syncurl','synckey'].forEach(id=>$('#'+id).addEventListener('input',()=>{
+  Sync.url=$('#syncurl').value.trim(); Sync.key=$('#synckey').value.trim(); saveSync();
+}));
+$('#syncauto').addEventListener('change',()=>{
+  Sync.auto=$('#syncauto').checked; saveSync();
+  if(Sync.auto && endpoint()){ pull(true); syncState('on', Sync.key+' · syncing'); }
+  else syncState('', 'Sync off — marks stay on this device');
+});
+function saveSync(){ Store.set('chalkline:sync', {url:Sync.url, key:Sync.key, auto:Sync.auto}); }
+
+/* ============================================================
+   PERSIST + BOOT
+   ============================================================ */
+let saveT, pendingLoud=false;
+function save(quiet){
+  if(!quiet) pendingLoud=true;
+  clearTimeout(saveT);
+  saveT=setTimeout(()=>{
+    Store.set(KEY,{pads:S.pads,marks:S.marks,tomb:S.tomb,offset:S.offset,
+                   videoName:S.videoName,fps,clock});
+    if(pendingLoud){ pendingLoud=false; autoPush(); }
+  },350);
+}
+/* Offline: register the worker so the app opens at a ground with no signal.
+   Only works over https (or localhost) — from a file:// path it's skipped. */
+if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  window.addEventListener('load',()=>{
+    navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW:',e));
+  });
+}
+
+/* A quiet marker so you can tell a cached offline load from a live one */
+window.addEventListener('online',  ()=>toast('Back online'));
+window.addEventListener('offline', ()=>toast('Offline — tagging still works, sync will wait'));
+
+(async function boot(){
+  const d = await Store.get(KEY);
+  if(d){
+    S.pads = d.pads||DEFAULT_PADS;
+    S.marks = (d.marks||[]).map(m=>({shapes:[],caption:'',u:0,...m}));
+    S.tomb = d.tomb||[];
+    S.offset = d.offset||0;
+    fps = d.fps||25;
+    if(d.clock){ clock = {epoch:d.clock.epoch||null, acc:d.clock.acc||0}; }
+    $('#offset').value=S.offset; $('#fpsin').value=fps;
+    if(clockRunning()) toast('Clock was running — picked up at '+fmtClock(nowT()));
+    else if(S.marks.length) toast(S.marks.length+' marks restored from last session');
+  }
+  const sc = await Store.get('chalkline:sync');
+  if(sc){
+    Sync.url=sc.url||''; Sync.key=sc.key||''; Sync.auto=!!sc.auto;
+    if(Sync.auto && endpoint()){ syncState('on', Sync.key+' · syncing'); pull(true); }
+  }
+  syncClockUI(); renderLog(); renderClips(); renderTools(); renderTagBar(); updateCap();
+})();
+</script>
