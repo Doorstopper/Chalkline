@@ -144,7 +144,7 @@ button{cursor:pointer;border:none;background:none}
 .scroll{overflow:auto;flex:1;min-height:0;background:var(--pitch)}
 
 .clip{
-  display:block;width:100%;text-align:left;padding:9px 12px;border-bottom:1px solid rgba(63,95,78,.35);
+  display:block;width:100%;text-align:left;padding:9px 30px 9px 12px;border-bottom:1px solid rgba(63,95,78,.35);
   border-left:4px solid transparent;
 }
 .clip:hover{background:var(--turf)}
@@ -152,7 +152,18 @@ button{cursor:pointer;border:none;background:none}
 .clip .t{font-family:var(--mono);font-size:11px;color:var(--chalk-dim);letter-spacing:.05em}
 .clip .c{font-family:var(--display);font-size:17px;letter-spacing:.02em;text-transform:uppercase;line-height:1.1;margin-top:1px}
 .clip .cap{font-size:11px;color:var(--chalk-dim);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.clip .who{display:inline-block;margin-top:4px;font-family:var(--mono);font-size:10px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--chalk);background:var(--turf-hi);border-radius:99px;padding:2px 8px}
 .clip .dot{display:inline-block;width:6px;height:6px;border-radius:99px;margin-right:5px;vertical-align:middle}
+.cliprow{position:relative}
+.cliprow .clipdel{
+  position:absolute;top:7px;right:7px;z-index:2;
+  border:none;background:transparent;color:var(--chalk-dim);
+  font-size:15px;line-height:1;padding:2px 6px;border-radius:4px;cursor:pointer;
+  opacity:0;transition:opacity .12s,color .12s,background .12s;
+}
+.cliprow:hover .clipdel,.cliprow .clipdel:focus-visible{opacity:1}
+.cliprow .clipdel:hover{color:var(--theirs);background:var(--turf-hi)}
 
 .stage{display:flex;flex-direction:column;min-width:0;min-height:0;background:#060D0A}
 .canvaswrap{
@@ -419,6 +430,15 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <button class="tbtn" id="syncbtn2">Sync</button>
         <button class="tbtn" id="loadmarks">Open</button>
       </div>
+      <div class="colhead" style="gap:8px">
+        <label class="eyebrow" style="flex:1;white-space:nowrap">Show
+          <select id="playerfilter" style="margin-top:4px"><option value="__all">All clips</option></select>
+        </label>
+        <label class="eyebrow" style="flex:1;white-space:nowrap">New clips are
+          <input list="playernames" id="defplayer" placeholder="Team" style="margin-top:4px">
+        </label>
+      </div>
+      <datalist id="playernames"></datalist>
       <div class="scroll" id="cliplist"></div>
       <div class="colhead" style="border-bottom:none;border-top:1px solid var(--line);gap:8px">
         <label class="eyebrow" style="flex:1;white-space:nowrap">Offset (s)
@@ -510,6 +530,10 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <select id="recat" disabled><option>Pick a clip first</option></select>
         </label>
 
+        <label class="field"><span class="eyebrow">Player</span>
+          <input list="playernames" id="clipplayer" placeholder="Team (no one)" disabled>
+        </label>
+
         <div class="pairs">
           <label class="field"><span class="eyebrow">Before (s)</span><input type="number" id="pre" value="6" min="0" step="1"></label>
           <label class="field"><span class="eyebrow">After (s)</span><input type="number" id="post" value="6" min="0" step="1"></label>
@@ -534,6 +558,11 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <label class="field"><span class="eyebrow">Freeze hold (seconds)</span>
           <input type="number" id="hold" value="3" min="0" max="10" step="1">
         </label>
+
+        <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Save exports to</div>
+        <button class="btn small" id="exportdir" type="button">Choose folder… (now: browser downloads)</button>
+        <div class="hint" id="exportdirhint">Pick your microSD folder and clips, stills and reels save straight there — otherwise they go to your browser's download folder.</div>
 
         <button class="btn primary" id="exportclip">Export clip</button>
         <button class="btn" id="exportpng">Export still</button>
@@ -771,11 +800,13 @@ const DEFAULT_PADS = [
 /* session state */
 let S = {
   pads: DEFAULT_PADS,
-  marks: [],          // {id, t, padIndex, label, color, pre, post, ask, caption, shapes:[], u}
+  marks: [],          // {id, t, padIndex, label, color, pre, post, ask, caption, shapes:[], player, u}
   tomb: [],           // ids deleted anywhere, so a merge can't resurrect them
   offset: 0,
-  videoName: ''
+  videoName: '',
+  defaultPlayer: ''   // new clips are tagged to this player until you change it
 };
+let filterPlayer = '__all';   // which clips the Studio list + reel export show. Not persisted.
 
 /* Clock is anchored to wall time (Date.now), not performance.now — the
    monotonic clock can pause while a phone sleeps, and an epoch anchor also
@@ -1255,30 +1286,100 @@ async function probeBlack(){
 function clipStart(m){ return Math.max(0, m.t + (+S.offset||0) - m.pre); }
 function clipEnd(m){ return m.t + (+S.offset||0) + m.post; }
 
+/* ---------- player tagging + filtering ---------- */
+function playerOf(m){ return (m.player||'').trim(); }
+function clipInScope(m){
+  if(filterPlayer==='__all')  return true;
+  if(filterPlayer==='__none') return !playerOf(m);
+  return playerOf(m).toLowerCase()===filterPlayer.toLowerCase();
+}
+/* distinct player names in use, case-insensitive, first-seen casing kept */
+function playerNames(){
+  const seen=new Map();
+  S.marks.forEach(m=>{ const n=playerOf(m); if(n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(),n); });
+  const dp=(S.defaultPlayer||'').trim();
+  if(dp && !seen.has(dp.toLowerCase())) seen.set(dp.toLowerCase(),dp);
+  return [...seen.values()].sort((a,b)=>a.localeCompare(b));
+}
+/* keep the filter dropdown, the name datalist and the reel button label in sync */
+function refreshPlayerUI(){
+  const names=playerNames();
+  const dl=$('#playernames');
+  if(dl) dl.innerHTML=names.map(n=>`<option value="${esc(n)}">`).join('');
+  const sel=$('#playerfilter');
+  if(sel){
+    const anyTeam=S.marks.some(m=>!playerOf(m));
+    const prev=filterPlayer;
+    let html='<option value="__all">All clips</option>';
+    names.forEach(n=>{ html+=`<option value="${esc(n)}">${esc(n)}</option>`; });
+    if(anyTeam) html+='<option value="__none">Team (no player)</option>';
+    sel.innerHTML=html;
+    /* if the previously-selected player vanished, fall back to All */
+    const has=[...sel.options].some(o=>o.value===prev);
+    filterPlayer = has ? prev : '__all';
+    sel.value=filterPlayer;
+  }
+  updateReelBtn();
+}
+function updateReelBtn(){
+  const btn=$('#reelbtn'); if(!btn) return;
+  const n=S.marks.filter(clipInScope).length;
+  const scope = filterPlayer==='__all' ? 'all clips'
+              : filterPlayer==='__none' ? 'team clips'
+              : filterPlayer+"'s clips";
+  btn.textContent=`Compile ${scope} (${n}) into one video`;
+}
+
 function renderClips(){
   const el = $('#cliplist'); el.innerHTML='';
+  refreshPlayerUI();
   if(!S.marks.length){
     el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No marks yet. Tag a game on the Sideline tab, or load a marks file.</div>';
     return;
   }
-  [...S.marks].sort((a,b)=>a.t-b.t).forEach(m=>{
+  const shown=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  if(!shown.length){
+    el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No clips for this filter. Switch “Show” back to All clips.</div>';
+    return;
+  }
+  shown.forEach(m=>{
+    const row = document.createElement('div');
+    row.className='cliprow';
     const b = document.createElement('button');
     b.className='clip';
     b.style.borderLeftColor = COLORS[m.color]?.hex;
     b.setAttribute('aria-current', curClip && curClip.id===m.id);
     const dur = Math.round(clipEnd(m)-clipStart(m));
+    const who = playerOf(m);
     b.innerHTML = `<div class="t">${fmtClock(clipStart(m))} · ${dur}s${m.shapes.length?' · '+m.shapes.length+' drawn':''}</div>
       <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}</div>
+      ${who?`<div class="who">${esc(who)}</div>`:''}
       ${m.caption?`<div class="cap">${esc(m.caption)}</div>`:''}`;
     b.addEventListener('click',()=>selectClip(m));
-    el.appendChild(b);
+    const del = document.createElement('button');
+    del.className='clipdel'; del.textContent='×';
+    del.setAttribute('aria-label','Delete clip '+m.label);
+    del.title='Delete this clip';
+    del.addEventListener('click',e=>{ e.stopPropagation(); deleteClip(m); });
+    row.appendChild(b);
+    row.appendChild(del);
+    el.appendChild(row);
   });
+}
+
+function deleteClip(m){
+  S.marks = S.marks.filter(k=>k.id!==m.id);
+  (S.tomb=S.tomb||[]).push(m.id);
+  if(curClip && curClip.id===m.id){ curClip=null; render(); }
+  renderClips(); renderLog(); drawRail(); save();
+  toast('Clip deleted');
 }
 
 function selectClip(m){
   curClip = m;
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
+  const cp=$('#clipplayer'); cp.disabled=false; cp.value = m.player || '';
   $('#askprompt').textContent = m.ask || 'Ask them what they saw before you tell them what you saw.';
   const rc=$('#recat'); rc.disabled=false; rc.innerHTML='';
   S.pads.forEach((p,i)=>{
@@ -1315,6 +1416,11 @@ $('#offset').addEventListener('input',()=>{ S.offset=+$('#offset').value||0; ren
 $('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value||25); save(); });
 
 $('#caption').addEventListener('input',()=>{ if(curClip){ curClip.caption=$('#caption').value; touch(curClip); updateCap(); renderClips(); save(); }});
+
+/* player tagging: per-clip, the default for new clips, and the list/export filter */
+$('#clipplayer').addEventListener('input',()=>{ if(curClip){ curClip.player=$('#clipplayer').value.trim(); touch(curClip); renderClips(); save(); }});
+$('#defplayer').addEventListener('input',()=>{ S.defaultPlayer=$('#defplayer').value.trim(); refreshPlayerUI(); save(); });
+$('#playerfilter').addEventListener('change',()=>{ filterPlayer=$('#playerfilter').value; renderClips(); });
 function updateCap(){
   const w = $('#caption').value.trim().split(/\s+/).filter(Boolean).length;
   const c = $('#capcount');
@@ -1441,6 +1547,11 @@ function renderTagBar(){
     b.addEventListener('click',()=>tagNow(i,b));
     el.appendChild(b);
   });
+  const cb=document.createElement('button');
+  cb.className='tagpad'; cb.style.borderLeftColor=(COLORS.ball||{}).hex||'#888';
+  cb.innerHTML='<span class="lb">＋ Custom</span>';
+  cb.addEventListener('click',()=>customTag());
+  el.appendChild(cb);
 }
 
 function tagNow(i, btn){
@@ -1453,13 +1564,34 @@ function tagNow(i, btn){
   S.marks.push({
     id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
     t:at, padIndex:i, label:p.label, color:p.color,
-    pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[], u:Date.now()
+    pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[],
+    player:(S.defaultPlayer||'').trim(), u:Date.now()
   });
   btn = btn || $('#tagpads').children[i];
   if(btn){ btn.classList.add('hit'); setTimeout(()=>btn.classList.remove('hit'),150); }
   loopArmed = false;
   renderClips(); renderLog(); drawRail(); save();
   toast(p.label+' at '+fmtClock(at));
+}
+
+/* a one-off custom tag while you watch — type any label, mark drops at the
+   current time. Doesn't touch your pads; for a permanent pad use the Pads editor. */
+function customTag(){
+  if(!vid.src||!vid.duration) return toast('Load a video first');
+  const lag = vid.paused ? 0 : (+$('#taglag').value||0);
+  const at = Math.max(0, vid.currentTime - lag) - (+S.offset||0);
+  ask('Custom tag — what is it?').then(label=>{
+    label=(label||'').trim(); if(!label) return;
+    S.marks.push({
+      id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
+      t:at, padIndex:-1, label, color:'ball',
+      pre:6, post:6, ask:'', caption:'', shapes:[],
+      player:(S.defaultPlayer||'').trim(), u:Date.now()
+    });
+    loopArmed=false;
+    renderClips(); renderLog(); drawRail(); save();
+    toast(label+' at '+fmtClock(at));
+  });
 }
 
 let exporting = false, loopArmed = false;
@@ -1506,6 +1638,7 @@ $('#rail').addEventListener('click',e=>{
    TELESTRATION
    ============================================================ */
 const TOOLS = [
+  {id:'move',  name:'Move',      key:'m', icon:'<path d="M12 3v18M3 12h18"/><path d="M9.5 5.5L12 3l2.5 2.5M9.5 18.5L12 21l2.5-2.5M5.5 9.5L3 12l2.5 2.5M18.5 9.5L21 12l-2.5 2.5"/>'},
   {id:'spot',  name:'Spotlight', key:'1', icon:'<circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'},
   {id:'circle',name:'Circle',    key:'2', icon:'<ellipse cx="12" cy="12" rx="9" ry="6"/>'},
   {id:'arrow', name:'Run',       key:'3', icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
@@ -1537,10 +1670,12 @@ function renderTools(){
     b.addEventListener('click',()=>{ color=k; renderTools(); });
     sw.appendChild(b);
   });
+  draw.style.cursor = tool==='move' ? 'move' : 'crosshair';
+  render(); /* reflect handle visibility the moment the tool changes */
 }
 
 /* shapes stored in normalised 0..1 coords so they survive resize + export */
-let dragging=null;
+let dragging=null, moving=null;
 function pt(e){
   const r=draw.getBoundingClientRect();
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
@@ -1549,6 +1684,7 @@ draw.addEventListener('pointerdown', e=>{
   if(!curClip) return toast('Pick a clip first');
   draw.setPointerCapture(e.pointerId);
   const p=pt(e);
+  if(tool==='move'){ startMove(p); return; }
   if(tool==='erase'){ eraseAt(p); return; }
   if(tool==='disc'){
     ask('Marker label', String(discN)).then(n=>{
@@ -1569,12 +1705,14 @@ draw.addEventListener('pointerdown', e=>{
   dragging={tool,color,a:p,b:p};
 });
 draw.addEventListener('pointermove', e=>{
+  if(moving){ applyMove(pt(e)); return; }
   if(!dragging) return;
   const p=pt(e);
   if(dragging.tool==='pen') dragging.pts.push(p); else dragging.b=p;
   render();
 });
 draw.addEventListener('pointerup', ()=>{
+  if(moving){ const m=moving; moving=null; if(m.moved){ commit(); } else render(); return; }
   if(!dragging) return;
   const d=dragging; dragging=null;
   const tiny = d.tool==='pen' ? d.pts.length<3 : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
@@ -1592,8 +1730,97 @@ function eraseAt(p){
 }
 $('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; commit(); }});
 
+/* ---------- move / reposition existing markup ---------- */
+function dist(u,v){ return Math.hypot(u.x-v.x, u.y-v.y); }
+function distToSeg(p,a,b){
+  if(!a||!b) return 9;
+  const vx=b.x-a.x, vy=b.y-a.y, L=vx*vx+vy*vy;
+  let t = L ? ((p.x-a.x)*vx+(p.y-a.y)*vy)/L : 0; t=Math.max(0,Math.min(1,t));
+  return Math.hypot(p.x-(a.x+t*vx), p.y-(a.y+t*vy));
+}
+/* is p on the body of shape s (for grabbing the whole thing) */
+function onBody(p,s,tb){
+  if(s.tool==='pen'){
+    if(!s.pts) return false;
+    for(let i=1;i<s.pts.length;i++) if(distToSeg(p,s.pts[i-1],s.pts[i])<tb) return true;
+    return false;
+  }
+  if(s.tool==='disc'||s.tool==='text'){ return s.a && dist(p,s.a)<0.05; }
+  if(s.tool==='zone'){
+    const x0=Math.min(s.a.x,s.b.x),x1=Math.max(s.a.x,s.b.x),y0=Math.min(s.a.y,s.b.y),y1=Math.max(s.a.y,s.b.y);
+    return p.x>=x0-tb && p.x<=x1+tb && p.y>=y0-tb && p.y<=y1+tb;
+  }
+  if(s.tool==='spot'){ return dist(p,s.a) <= dist(s.a,s.b)+tb; }
+  if(s.tool==='circle'){
+    const cx=(s.a.x+s.b.x)/2, cy=(s.a.y+s.b.y)/2;
+    const rx=Math.abs(s.b.x-s.a.x)/2||1e-6, ry=Math.abs(s.b.y-s.a.y)/2||1e-6;
+    return Math.hypot((p.x-cx)/rx,(p.y-cy)/ry) < 1.25;
+  }
+  return distToSeg(p,s.a,s.b)<tb; /* arrow, option, curve, run */
+}
+/* pick a grab: endpoint handle if near one, else the shape body. Topmost wins. */
+function pickHandle(p){
+  const te=0.03, tb=0.03, shapes=curClip.shapes;
+  for(let i=shapes.length-1;i>=0;i--){
+    const s=shapes[i];
+    if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
+    if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
+    if(s.pts){
+      if(dist(p,s.pts[s.pts.length-1])<te) return {s,mode:'pend'};
+      if(dist(p,s.pts[0])<te) return {s,mode:'pstart'};
+    }
+  }
+  for(let i=shapes.length-1;i>=0;i--){ if(onBody(p,shapes[i],tb)) return {s:shapes[i],mode:'move'}; }
+  return null;
+}
+function startMove(p){
+  const hit=pickHandle(p);
+  if(!hit){ moving=null; toast('Nothing to move here — tap on a mark'); return; }
+  const s=hit.s;
+  moving={ s, mode:hit.mode, start:p, moved:false,
+    orig:{ a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, pts:s.pts?s.pts.map(q=>({...q})):null } };
+}
+function applyMove(p){
+  const s=moving.s, o=moving.orig, cl=v=>Math.max(0,Math.min(1,v));
+  let dx=p.x-moving.start.x, dy=p.y-moving.start.y;
+  if(moving.mode==='a'){ s.a={x:cl(o.a.x+dx),y:cl(o.a.y+dy)}; }
+  else if(moving.mode==='b'){ s.b={x:cl(o.b.x+dx),y:cl(o.b.y+dy)}; }
+  else if(moving.mode==='pstart'||moving.mode==='pend'){
+    const idx = moving.mode==='pstart' ? 0 : o.pts.length-1;
+    s.pts=o.pts.map((q,i)=> i===idx ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q});
+  } else {
+    /* whole shape: clamp the delta so no point leaves the frame */
+    const xs=[], ys=[];
+    if(o.a){xs.push(o.a.x);ys.push(o.a.y);}
+    if(o.b){xs.push(o.b.x);ys.push(o.b.y);}
+    if(o.pts) o.pts.forEach(q=>{xs.push(q.x);ys.push(q.y);});
+    dx=Math.max(-Math.min(...xs), Math.min(1-Math.max(...xs), dx));
+    dy=Math.max(-Math.min(...ys), Math.min(1-Math.max(...ys), dy));
+    if(o.a) s.a={x:o.a.x+dx,y:o.a.y+dy};
+    if(o.b) s.b={x:o.b.x+dx,y:o.b.y+dy};
+    if(o.pts) s.pts=o.pts.map(q=>({x:q.x+dx,y:q.y+dy}));
+  }
+  moving.moved=true; render();
+}
+/* grab handles, drawn on the live canvas only (never in paint(), so exports stay clean) */
+function drawHandles(){
+  if(!curClip) return;
+  const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
+  ctx.save(); ctx.lineWidth=1.6*scale;
+  const dot=q=>{ if(!q) return; ctx.beginPath(); ctx.arc(q.x*W,q.y*H,5.5*scale,0,7);
+    ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fill(); ctx.strokeStyle='rgba(6,12,9,.75)'; ctx.stroke(); };
+  curClip.shapes.forEach(s=>{
+    if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
+    else { dot(s.a); if(s.b) dot(s.b); }
+  });
+  ctx.restore();
+}
+
 /* ---------- rendering ---------- */
-function render(){ paint(ctx, draw.width, draw.height, curClip ? curClip.shapes : [], dragging); }
+function render(){
+  paint(ctx, draw.width, draw.height, curClip ? curClip.shapes : [], dragging);
+  if(tool==='move') drawHandles();
+}
 
 function loopRender(){
   if(vid.paused) return;
@@ -1740,13 +1967,61 @@ function wrap(c,text,max){
   return out;
 }
 
-$('#exportpng').addEventListener('click',()=>{
+/* ---------- where exports land: an optional folder handle (e.g. the microSD) ----------
+   Pick a folder once; clips, stills and reels write straight into it. Falls back
+   to the browser download when no folder is set or the API isn't available.
+   Chrome/Edge only; works on https and on file:// (both secure contexts). */
+let exportDir = null;
+function exportDirLabel(){
+  const b=$('#exportdir'); if(!b) return;
+  b.textContent = exportDir ? ('Saving to: '+(exportDir.name||'chosen folder')+' — change')
+                            : 'Choose folder… (now: browser downloads)';
+}
+async function chooseExportDir(){
+  if(typeof window.showDirectoryPicker!=='function')
+    return toast('This browser can only save to its downloads folder');
+  try{
+    const dir = await window.showDirectoryPicker({id:'chalkline-exports', mode:'readwrite'});
+    if((await dir.requestPermission({mode:'readwrite'}))!=='granted') return toast('Permission declined');
+    exportDir = dir; await IDB.put('exportDir', dir);
+    exportDirLabel(); toast('Exports will save to '+(dir.name||'that folder'));
+  }catch(e){ if(e && e.name==='AbortError') return; console.warn('exportdir:',e); toast('Could not use that folder'); }
+}
+/* resolve a writable target — call inside the export click so requestPermission
+   has a user gesture. Returns null to mean "use the download fallback". */
+async function exportTarget(){
+  if(!exportDir) return null;
+  try{
+    let p = await exportDir.queryPermission({mode:'readwrite'});
+    if(p!=='granted') p = await exportDir.requestPermission({mode:'readwrite'});
+    return p==='granted' ? exportDir : null;
+  }catch(e){ return null; }
+}
+/* write the blob to the chosen folder, or fall back to a normal download */
+async function writeOut(target, blob, name){
+  if(target){
+    try{
+      const fh = await target.getFileHandle(name,{create:true});
+      const w  = await fh.createWritable();
+      await w.write(blob); await w.close();
+      return true;
+    }catch(e){ console.warn('write:',e); toast('Folder write failed — sent to downloads'); }
+  }
+  download(blob,name);
+  return true;
+}
+$('#exportdir').addEventListener('click', chooseExportDir);
+(async ()=>{ try{ const d=await IDB.get('exportDir'); if(d){ exportDir=d; exportDirLabel(); } }catch(e){} })();
+
+$('#exportpng').addEventListener('click', async ()=>{
   if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
+  const target = await exportTarget();
   const cv=exportCanvas(), c=cv.getContext('2d');
   c.drawImage(vid,0,0,cv.width,cv.height);
   paint(c,cv.width,cv.height,curClip.shapes,null);
   paintCaption(c,cv.width,cv.height,curClip.caption);
-  cv.toBlob(b=>download(b, safe(curClip.label)+'-'+Math.round(curClip.t)+'s.png'), 'image/png');
+  const name = safe(curClip.label)+'-'+Math.round(curClip.t)+'s.png';
+  cv.toBlob(b=>writeOut(target, b, name), 'image/png');
   toast('Still saved');
 });
 
@@ -1755,6 +2030,7 @@ async function exportClip(){
   if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
+  const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
   const stream=cv.captureStream(30);
@@ -1815,7 +2091,7 @@ async function exportClip(){
     await new Promise(r=>rec.onstop=r);
 
     const isMp4 = (rec.mimeType||mime||'').includes('mp4');
-    download(new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
+    await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
       safe(curClip.label)+'-'+Math.round(curClip.t)+'s.'+(isMp4?'mp4':'webm'));
     toast('Clip exported');
   } catch(err){
@@ -1858,17 +2134,19 @@ function paintTitleCard(c,W,H,m,i,total){
 async function compileReel(){
   if(!vid.videoWidth) return toast('Load the match first');
   if(exporting) return toast('Already exporting — give it a moment');
-  const list=[...S.marks].sort((a,b)=>a.t-b.t);
-  if(!list.length) return toast('No clips to compile');
+  const list=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  const scopeName = filterPlayer==='__all' ? '' : filterPlayer==='__none' ? 'team' : filterPlayer;
+  if(!list.length) return toast(scopeName ? `No ${scopeName} clips to compile` : 'No clips to compile');
 
   const total = list.reduce((n,m)=>n+(clipEnd(m)-clipStart(m)),0);
   const cards = $('#titlecards').checked;
   const hold  = +$('#hold').value||0;
   const mins  = Math.ceil((total + list.length*(hold+(cards?2.5:0)))/60);
   if(!await confirmBox(
-      `${list.length} clips, roughly ${mins} minute${mins===1?'':'s'} of video. `+
+      `${list.length} ${scopeName?scopeName+' ':''}clip${list.length===1?'':'s'}, roughly ${mins} minute${mins===1?'':'s'} of video. `+
       `It records in real time, so it will take about that long and the tab has to stay open and visible. Start now?`))
     return;
+  const target = await exportTarget();   /* the confirm click is the gesture that lets us claim the folder */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
   const stream=cv.captureStream(30);
@@ -1930,8 +2208,9 @@ async function compileReel(){
     rec.stop();
     await new Promise(r=>rec.onstop=r);
     const isMp4=(rec.mimeType||mime||'').includes('mp4');
-    download(new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
-      'chalkline-reel-'+stamp()+'.'+(isMp4?'mp4':'webm'));
+    const tag = filterPlayer==='__all' ? '' : (safe(filterPlayer==='__none'?'team':filterPlayer)+'-');
+    await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
+      'chalkline-reel-'+tag+stamp()+'.'+(isMp4?'mp4':'webm'));
     toast('Reel exported — '+list.length+' clips');
   }catch(err){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
@@ -1947,8 +2226,11 @@ $('#reelbtn').addEventListener('click', compileReel);
 
 $('#exportall').addEventListener('click',()=>{
   const name = S.videoName || 'match.mp4';
-  const sorted=[...S.marks].sort((a,b)=>a.t-b.t);
-  let txt = '# Chalkline cut list — '+stamp()+'\n# source: '+name+'\n';
+  const scope = filterPlayer==='__all' ? '' : filterPlayer==='__none' ? 'team' : filterPlayer;
+  const sorted=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  if(!sorted.length) return toast(scope?`No ${scope} clips to export`:'No clips to export');
+  const reelName = 'chalkline-reel'+(scope?'-'+safe(scope):'')+'.mp4';
+  let txt = '# Chalkline cut list — '+stamp()+(scope?' — '+scope:'')+'\n# source: '+name+'\n';
   txt += '# Run these where the match file is. Needs ffmpeg.\n\n';
   sorted.forEach((m,i)=>{
     const s=clipStart(m), d=(clipEnd(m)-s).toFixed(1);
@@ -1962,11 +2244,11 @@ $('#exportall').addEventListener('click',()=>{
   txt += '# Save the list below as reel.txt in the same folder:\n#\n';
   sorted.forEach((m,i)=>{ txt += `#   file '${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4'\n`; });
   txt += '#\n# Then run:\n';
-  txt += 'ffmpeg -f concat -safe 0 -i reel.txt -c copy chalkline-reel.mp4\n\n';
+  txt += 'ffmpeg -f concat -safe 0 -i reel.txt -c copy '+reelName+'\n\n';
   txt += '# Windows one-liner that writes the list for you, from the same folder:\n';
   txt += '#   (for %i in (*.mp4) do @echo file \'%i\') > reel.txt\n';
 
-  download(new Blob([txt],{type:'text/plain'}), 'chalkline-cuts-'+stamp()+'.txt');
+  download(new Blob([txt],{type:'text/plain'}), 'chalkline-cuts-'+(scope?safe(scope)+'-':'')+stamp()+'.txt');
   download(new Blob([JSON.stringify({...S},null,2)],{type:'application/json'}), 'chalkline-session-'+stamp()+'.json');
   toast('Cut list and session saved');
 });
@@ -2174,7 +2456,7 @@ function save(quiet){
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
     Store.set(KEY,{pads:S.pads,marks:S.marks,tomb:S.tomb,offset:S.offset,
-                   videoName:S.videoName,fps,clock});
+                   videoName:S.videoName,defaultPlayer:S.defaultPlayer,fps,clock});
     if(pendingLoud){ pendingLoud=false; autoPush(); }
   },350);
 }
@@ -2188,9 +2470,11 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
   const d = await Store.get(KEY);
   if(d){
     S.pads = d.pads||DEFAULT_PADS;
-    S.marks = (d.marks||[]).map(m=>({shapes:[],caption:'',u:0,...m}));
+    S.marks = (d.marks||[]).map(m=>({shapes:[],caption:'',u:0,player:'',...m}));
     S.tomb = d.tomb||[];
     S.offset = d.offset||0;
+    S.defaultPlayer = d.defaultPlayer||'';
+    $('#defplayer').value = S.defaultPlayer;
     fps = d.fps||25;
     if(d.clock){ clock = {epoch:d.clock.epoch||null, acc:d.clock.acc||0}; }
     $('#offset').value=S.offset; $('#fpsin').value=fps;
