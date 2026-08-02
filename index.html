@@ -577,6 +577,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
         <div class="sep"></div>
         <button class="btn" id="exportall">Save session + ffmpeg cuts</button>
+        <button class="btn" id="exportbatch">ffmpeg cuts — each player separately</button>
+        <div class="hint">Writes one cut list per group (Ethan, team, …) plus its join command, straight into your export folder. Run them where the match file is; each builds its own reel losslessly, no real-time recording.</div>
 
         <div class="hint">
           <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>1</kbd>–<kbd>8</kbd> tools ·
@@ -2251,6 +2253,55 @@ $('#exportall').addEventListener('click',()=>{
   download(new Blob([txt],{type:'text/plain'}), 'chalkline-cuts-'+(scope?safe(scope)+'-':'')+stamp()+'.txt');
   download(new Blob([JSON.stringify({...S},null,2)],{type:'application/json'}), 'chalkline-session-'+stamp()+'.json');
   toast('Cut list and session saved');
+});
+
+/* one group per player, plus a "Team" group for clips with no player. Only
+   non-empty groups, each sorted by match time. Used by the batch ffmpeg export. */
+function exportGroups(){
+  const g=new Map();
+  S.marks.forEach(m=>{
+    const who=playerOf(m);
+    const key=who ? who.toLowerCase() : '__team';
+    if(!g.has(key)) g.set(key,{name: who||'Team', prefix: safe(who||'team')||'team', marks:[]});
+    g.get(key).marks.push(m);
+  });
+  return [...g.values()].map(x=>({...x, marks:x.marks.sort((a,b)=>a.t-b.t)}));
+}
+
+/* Option B: one ffmpeg cut list per group, straight into the export folder.
+   Each group's clips get a group-prefixed filename so nothing collides, plus a
+   concat list and a lossless join into chalkline-reel-<group>.mp4. */
+$('#exportbatch').addEventListener('click', async ()=>{
+  const groups=exportGroups();
+  if(!groups.length) return toast('No clips to export');
+  const target=await exportTarget();
+  const name = S.videoName || 'match.mp4';
+
+  let txt = '# Chalkline cut lists — '+stamp()+'\n# source: '+name+'\n';
+  txt += '# One reel per group: '+groups.map(g=>g.name).join(', ')+'\n';
+  txt += '# Run this where the match file is. Needs ffmpeg. Each group builds its\n';
+  txt += '# own reel losslessly from the source — no re-recording.\n';
+
+  for(const g of groups){
+    const reelList=[];
+    txt += `\n# ===== ${g.name.toUpperCase()} — ${g.marks.length} clip${g.marks.length===1?'':'s'} =====\n`;
+    g.marks.forEach((m,i)=>{
+      const s=clipStart(m), d=(clipEnd(m)-s).toFixed(1);
+      const out=`${g.prefix}_${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4`;
+      const cap=(m.caption||'').replace(/\s+/g,' ').trim();
+      txt += `# ${i+1}. ${m.label}${cap?' — '+cap:''}\n`;
+      txt += `ffmpeg -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 23 -preset veryfast `
+          +  `-vf "scale=1280:-2" -c:a aac -b:a 128k "${out}"\n`;
+      reelList.push(`file '${out}'`);
+    });
+    const listName=`${g.prefix}-reel.txt`;
+    txt += `# join ${g.name}'s clips (${listName} is written alongside this file):\n`;
+    txt += `ffmpeg -f concat -safe 0 -i ${listName} -c copy chalkline-reel-${g.prefix}.mp4\n`;
+    await writeOut(target, new Blob([reelList.join('\n')+'\n'],{type:'text/plain'}), listName);
+  }
+
+  await writeOut(target, new Blob([txt],{type:'text/plain'}), 'chalkline-cuts-all-'+stamp()+'.txt');
+  toast(`Cut lists for ${groups.length} group${groups.length===1?'':'s'} saved`+(target?' to your folder':''));
 });
 
 function safe(s){ return String(s).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,''); }
