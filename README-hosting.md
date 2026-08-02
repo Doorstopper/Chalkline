@@ -72,8 +72,16 @@ Upload the new `index.html`, then open `sw.js` and change `chalkline-v1` to
 `chalkline-v2`. Without that bump, phones keep serving the cached old version and
 you'll wonder why nothing changed. Bump the number every time you change the app.
 
-## Pointing the desktop shortcut at it
+## Desktop shortcut (runs the local copy)
 
-Open `Create Chalkline shortcut.cmd` in Notepad, fill in the `SITE=` line with
-your new address, and run it again. Both devices then run the same copy, which is
-what you want once sync is on.
+On a laptop you don't need the hosted address at all — `index.html` runs straight
+off disk. The service worker just skips registering on `file://` URLs, and
+everything else works the same.
+
+Run `Create Chalkline shortcut.cmd` from inside this repo folder. It drops a
+**Chalkline** shortcut on your Desktop that opens the local `index.html` next to
+the script in your default browser. Nothing to fill in — the script finds the
+file beside itself.
+
+To follow app updates on the desktop, `git pull` this repo; the shortcut keeps
+pointing at the same local `index.html`.
