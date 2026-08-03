@@ -1827,8 +1827,14 @@ function editTextInline(s){
   inp.style.cssText=`position:absolute;left:${left}px;top:${top}px;transform:translateY(-50%);`
     +`font:600 ${fontPx}px "Barlow Condensed",sans-serif;color:${col};`
     +`background:rgba(6,13,10,.92);border:1px solid ${col};border-radius:3px;`
-    +`padding:1px 6px;z-index:70;caret-color:${col};outline:none;min-width:48px;`;
+    +`padding:1px 6px;z-index:70;caret-color:${col};outline:none;box-sizing:content-box;`
+    +`min-width:24px;max-width:${Math.max(60,dispW-left-8)}px;`;
   box.appendChild(inp);
+  /* grow the box to fit the text, like a PowerPoint text box */
+  const meas=document.createElement('canvas').getContext('2d');
+  const fit=()=>{ meas.font=`600 ${fontPx}px "Barlow Condensed",sans-serif`;
+    inp.style.width=Math.ceil(meas.measureText(inp.value||' ').width)+4+'px'; };
+  fit(); inp.addEventListener('input', fit);
   inp.focus(); inp.select();
   let done=false;
   const finish=(keep)=>{
