@@ -1791,6 +1791,38 @@ draw.addEventListener('pointerup', ()=>{
 });
 function commit(){ if(curClip) touch(curClip); render(); renderClips(); save(); }
 
+/* topmost text/marker whose drawn box contains p (in px space, matching paint) */
+function textHitsAt(p){
+  if(!curClip) return null;
+  const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
+  const px=p.x*W, py=p.y*H;
+  const mc=document.createElement('canvas').getContext('2d');
+  for(let i=curClip.shapes.length-1;i>=0;i--){
+    const s=curClip.shapes[i];
+    if(s.tool==='text' && s.a){
+      mc.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
+      const w=mc.measureText(s.text||'').width;
+      if(px>=s.a.x*W-8*scale && px<=s.a.x*W+w+8*scale &&
+         py>=s.a.y*H-16*scale && py<=s.a.y*H+16*scale) return s;
+    } else if(s.tool==='disc' && s.a){
+      if(Math.hypot((p.x-s.a.x)*W,(p.y-s.a.y)*H) < 16*scale) return s;
+    }
+  }
+  return null;
+}
+/* double-click a text or marker to edit its wording */
+draw.addEventListener('dblclick', e=>{
+  const s=textHitsAt(pt(e));
+  if(!s) return;
+  e.preventDefault();
+  ask(s.tool==='disc'?'Marker label':'Edit text', s.text||'').then(t=>{
+    if(t===null) return;               /* cancelled */
+    t=(''+t).trim();
+    if(!t) return;                     /* empty kept as-is; use Delete to remove */
+    s.text=t; selected=s; commit();
+  });
+});
+
 function eraseAt(p){
   if(!curClip) return;
   for(let i=curClip.shapes.length-1;i>=0;i--){
