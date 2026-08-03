@@ -592,6 +592,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
         <button class="btn primary" id="exportclip">Export clip</button>
         <button class="btn" id="exportpng">Export still</button>
+        <button class="btn" id="snapstill">Snap still from screen</button>
+        <div class="hint" id="snaphint">Use this if Export still is blank (H.265 footage). It grabs what’s on screen, so you’ll be asked to share this tab once. Saves to the same place; lower resolution than converting to H.264.</div>
 
         <div class="sep"></div>
         <div class="eyebrow">Whole game reel</div>
@@ -2183,6 +2185,59 @@ $('#exportpng').addEventListener('click', async ()=>{
   const name = safe(curClip.label)+'-'+Math.round(curClip.t)+'s.png';
   cv.toBlob(b=>writeOut(target, b, name), 'image/png');
   toast('Still saved');
+});
+
+/* Snap still from screen — for H.265 footage that plays but won't draw to a
+   canvas. Captures the tab's rendered pixels (video + on-screen markup), crops
+   to the video area, adds the caption, and saves like any other export. */
+function canvasBlank(c,w,h){
+  try{
+    const d=c.getImageData(0,0,Math.min(w,64),Math.min(h,36)).data;
+    let max=0; for(let i=0;i<d.length;i+=4) max=Math.max(max,d[i],d[i+1],d[i+2]);
+    return max<10;
+  }catch(e){ return false; }
+}
+$('#snapstill').addEventListener('click', async ()=>{
+  if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia))
+    return toast('This browser can’t screen-capture — convert to H.264 and use Export still');
+  vid.pause();
+  let stream;
+  try{
+    stream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false, preferCurrentTab:true});
+  }catch(e){ if(e && e.name==='NotAllowedError') return; return toast('Screen share was cancelled'); }
+  try{
+    selected=null; render();   /* keep selection handles out of the snap */
+    await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
+    const track=stream.getVideoTracks()[0];
+    let bmp, bw, bh;
+    if(window.ImageCapture){
+      bmp = await new ImageCapture(track).grabFrame(); bw=bmp.width; bh=bmp.height;
+    } else {
+      const tv=document.createElement('video'); tv.srcObject=stream; tv.muted=true;
+      await tv.play(); await new Promise(r=>setTimeout(r,150));
+      bmp=tv; bw=tv.videoWidth; bh=tv.videoHeight;
+    }
+    /* tab capture surface maps 1:1 to the viewport, scaled by pixel ratio */
+    const sx=bw/window.innerWidth, sy=bh/window.innerHeight;
+    const r=vid.getBoundingClientRect();
+    const cx=Math.max(0,Math.round(r.left*sx)), cy=Math.max(0,Math.round(r.top*sy));
+    const cw=Math.max(2,Math.round(r.width*sx)), ch=Math.max(2,Math.round(r.height*sy));
+    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch;
+    const c=cv.getContext('2d');
+    c.drawImage(bmp, cx, cy, cw, ch, 0, 0, cw, ch);
+    if(canvasBlank(c,cw,ch)){
+      warnBlank();
+      toast('Screen snap came back blank too — this GPU hides the video from capture; convert to H.264');
+      return;
+    }
+    paintCaption(c, cw, ch, curClip.caption);
+    const target = await exportTarget();
+    const name = safe(curClip.label)+'-'+Math.round(curClip.t)+'s.png';
+    cv.toBlob(b=>writeOut(target, b, name), 'image/png');
+    toast('Still saved');
+  }catch(e){ console.warn('snap:',e); toast('Snap failed — try converting to H.264'); }
+  finally{ try{ stream.getTracks().forEach(t=>t.stop()); }catch(e){} }
 });
 
 $('#exportclip').addEventListener('click', exportClip);
