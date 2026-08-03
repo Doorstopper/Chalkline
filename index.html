@@ -521,6 +521,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
     <div class="col">
       <div class="colhead"><span class="eyebrow">Markup</span>
+        <button class="tbtn" id="undomarks">Undo</button>
         <button class="tbtn" id="clearbtn">Clear</button>
       </div>
       <div class="scroll tools">
@@ -1428,7 +1429,8 @@ function deleteClip(m){
 
 function selectClip(m){
   curClip = m;
-  selected = null;
+  selected = null; editingShape = null; finishTextEdit = null;
+  resetUndo();
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
   const cp=$('#clipplayer'); cp.disabled=false; cp.value = m.player || '';
@@ -1738,13 +1740,16 @@ function renderTools(){
 }
 
 /* shapes stored in normalised 0..1 coords so they survive resize + export */
-let dragging=null, moving=null, selected=null, editingShape=null;
+let dragging=null, moving=null, selected=null, editingShape=null, finishTextEdit=null;
 function pt(e){
   const r=draw.getBoundingClientRect();
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
 }
 draw.addEventListener('pointerdown', e=>{
   if(!curClip) return toast('Pick a clip first');
+  /* an open inline text box commits on any click elsewhere (a canvas can't blur
+     itself, so we close it here) and that click is consumed */
+  if(editingShape){ if(finishTextEdit) finishTextEdit(true); return; }
   draw.setPointerCapture(e.pointerId);
   const p=pt(e);
   /* direct manipulation: if you press on an existing mark (or its handle),
@@ -1784,7 +1789,27 @@ draw.addEventListener('pointerup', ()=>{
   const tiny = d.tool==='pen' ? d.pts.length<3 : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
   if(!tiny){ curClip.shapes.push(d); commit(); } else render();
 });
-function commit(){ if(curClip) touch(curClip); render(); renderClips(); save(); }
+/* markup undo history — snapshots of the current clip's shapes */
+let undoStack=[], undoBase='[]';
+function snapShapes(){ return curClip ? JSON.stringify(curClip.shapes) : '[]'; }
+function resetUndo(){ undoStack=[]; undoBase=snapShapes(); }
+function commit(){
+  if(curClip){
+    const now=JSON.stringify(curClip.shapes);
+    if(now!==undoBase){ undoStack.push(undoBase); if(undoStack.length>60) undoStack.shift(); undoBase=now; }
+    touch(curClip);
+  }
+  render(); renderClips(); save();
+}
+function undoMarkup(){
+  if(!curClip) return;
+  if(!undoStack.length) return toast('Nothing to undo');
+  if(editingShape){ if(finishTextEdit) finishTextEdit(false); }
+  selected=null; editingShape=null;
+  curClip.shapes = JSON.parse(undoStack.pop());
+  undoBase = JSON.stringify(curClip.shapes);
+  touch(curClip); render(); renderClips(); save();
+}
 
 /* is p inside a text mark's drawn box / a marker's disc (px space, matches paint) */
 function textBoxHit(p,s){
@@ -1808,6 +1833,7 @@ function textHitsAt(p){
 }
 /* place a new text mark inline at p and edit it right away (no modal) */
 function createTextInline(p){
+  if(editingShape) return;
   const s={tool:'text', color, a:{x:p.x,y:p.y}, text:''};
   curClip.shapes.push(s);
   editTextInline(s, true);
@@ -1841,12 +1867,14 @@ function editTextInline(s, isNew){
   let done=false;
   const finish=(keep)=>{
     if(done) return; done=true;
+    finishTextEdit=null;
     const t=inp.value.trim();
     if(keep && t) s.text=t;
     /* a brand-new box left empty is discarded, so a stray click leaves nothing */
     if(isNew && !s.text){ const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1); if(selected===s) selected=null; }
     inp.remove(); editingShape=null; commit();
   };
+  finishTextEdit=finish;
   inp.addEventListener('keydown',ev=>{
     if(ev.key==='Enter'){ ev.preventDefault(); finish(true); }
     else if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
@@ -1876,6 +1904,7 @@ function eraseAt(p){
   }
 }
 $('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; selected=null; commit(); }});
+$('#undomarks').addEventListener('click', undoMarkup);
 
 /* ---------- move / reposition existing markup ---------- */
 function dist(u,v){ return Math.hypot(u.x-v.x, u.y-v.y); }
@@ -2626,7 +2655,7 @@ document.addEventListener('keydown',e=>{
   if(!$('#studio').classList.contains('on')) return;
   if((e.metaKey||e.ctrlKey) && e.key==='z'){
     e.preventDefault();
-    if(curClip&&curClip.shapes.length){ selected=null; curClip.shapes.pop(); commit(); }
+    undoMarkup();
     return;
   }
   /* Delete/Backspace removes the selected mark (the one showing white handles) */
