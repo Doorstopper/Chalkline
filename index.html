@@ -1723,7 +1723,7 @@ function renderTools(){
     b.className='tool'; b.setAttribute('aria-pressed', t.id===tool); b.title=t.name+'  ('+t.key+')';
     b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
       stroke-linecap="round" stroke-linejoin="round">${t.icon}</svg><span>${t.name}</span>`;
-    b.addEventListener('click',()=>{ tool=t.id; renderTools(); });
+    b.addEventListener('click',()=>{ tool = (tool===t.id ? null : t.id); renderTools(); });
     g.appendChild(b);
   });
   const sw=$('#swatches'); sw.innerHTML='';
@@ -1753,6 +1753,7 @@ draw.addEventListener('pointerdown', e=>{
   const hit = pickHandle(p);
   if(hit){ selected = hit.s; beginMove(p, hit); render(); return; }
   if(selected){ selected = null; render(); }
+  if(!tool) return;   /* no tool active: empty click just deselects, draws nothing */
   if(tool==='erase'){ eraseAt(p); return; }
   if(tool==='disc'){
     ask('Marker label', String(discN)).then(n=>{
@@ -1774,7 +1775,7 @@ draw.addEventListener('pointermove', e=>{
     render(); return;
   }
   /* idle hover: show a move cursor over anything grabbable */
-  if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : 'crosshair';
+  if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
 });
 draw.addEventListener('pointerup', ()=>{
   if(moving){ const m=moving; moving=null; if(m.moved){ commit(); } else render(); return; }
@@ -2637,7 +2638,7 @@ document.addEventListener('keydown',e=>{
     return;
   }
   const t=TOOLS.find(x=>x.key===e.key);
-  if(t){ tool=t.id; renderTools(); return; }
+  if(t){ tool = (tool===t.id ? null : t.id); renderTools(); return; }
   const ti=TAGKEYS.indexOf(e.key.toLowerCase());
   if(ti>-1 && ti<S.pads.length){ e.preventDefault(); tagNow(ti); return; }
   if(e.key===' '){ e.preventDefault(); togglePlay(); }
