@@ -2555,6 +2555,14 @@ document.addEventListener('keydown',e=>{
     if(curClip&&curClip.shapes.length){ selected=null; curClip.shapes.pop(); commit(); }
     return;
   }
+  /* Delete/Backspace removes the selected mark (the one showing white handles) */
+  if((e.key==='Delete'||e.key==='Backspace') && selected && curClip){
+    e.preventDefault();
+    const i=curClip.shapes.indexOf(selected);
+    if(i>=0) curClip.shapes.splice(i,1);
+    selected=null; commit();
+    return;
+  }
   const t=TOOLS.find(x=>x.key===e.key);
   if(t){ tool=t.id; renderTools(); return; }
   const ti=TAGKEYS.indexOf(e.key.toLowerCase());
