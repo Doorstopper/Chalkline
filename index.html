@@ -1738,7 +1738,7 @@ function renderTools(){
 }
 
 /* shapes stored in normalised 0..1 coords so they survive resize + export */
-let dragging=null, moving=null, selected=null;
+let dragging=null, moving=null, selected=null, editingShape=null;
 function pt(e){
   const r=draw.getBoundingClientRect();
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
@@ -1810,15 +1810,45 @@ function textHitsAt(p){
   }
   return null;
 }
-/* double-click a text or marker to edit its wording */
+/* double-click a text to edit it in place; a marker keeps the quick prompt */
+function editTextInline(s){
+  if(editingShape) return;
+  const box=$('#vidbox'); if(!box) return;
+  const r=draw.getBoundingClientRect(), bR=box.getBoundingClientRect();
+  const W=draw.width||1, scale=Math.max(1,W/900);
+  const dispW=r.width, dispH=r.height;
+  const left=(r.left-bR.left)+s.a.x*dispW;
+  const top =(r.top -bR.top )+s.a.y*dispH;
+  const fontPx=19*scale*(dispW/W);
+  const col=(COLORS[s.color]||COLORS.ball).hex;
+  editingShape=s; selected=s; render();
+  const inp=document.createElement('input');
+  inp.type='text'; inp.value=s.text||''; inp.spellcheck=false;
+  inp.style.cssText=`position:absolute;left:${left}px;top:${top}px;transform:translateY(-50%);`
+    +`font:600 ${fontPx}px "Barlow Condensed",sans-serif;color:${col};`
+    +`background:rgba(6,13,10,.92);border:1px solid ${col};border-radius:3px;`
+    +`padding:1px 6px;z-index:70;caret-color:${col};outline:none;min-width:48px;`;
+  box.appendChild(inp);
+  inp.focus(); inp.select();
+  let done=false;
+  const finish=(keep)=>{
+    if(done) return; done=true;
+    if(keep){ const t=inp.value.trim(); if(t) s.text=t; }
+    inp.remove(); editingShape=null; commit();
+  };
+  inp.addEventListener('keydown',ev=>{
+    if(ev.key==='Enter'){ ev.preventDefault(); finish(true); }
+    else if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
+  });
+  inp.addEventListener('blur',()=>finish(true));
+}
 draw.addEventListener('dblclick', e=>{
   const s=textHitsAt(pt(e));
   if(!s) return;
   e.preventDefault();
-  ask(s.tool==='disc'?'Marker label':'Edit text', s.text||'').then(t=>{
-    if(t===null) return;               /* cancelled */
-    t=(''+t).trim();
-    if(!t) return;                     /* empty kept as-is; use Delete to remove */
+  if(s.tool==='text'){ editTextInline(s); return; }
+  ask('Marker label', s.text||'').then(t=>{
+    if(t===null) return; t=(''+t).trim(); if(!t) return;
     s.text=t; selected=s; commit();
   });
 });
@@ -1920,8 +1950,9 @@ function drawHandles(s){
 
 /* ---------- rendering ---------- */
 function render(){
-  paint(ctx, draw.width, draw.height, curClip ? curClip.shapes : [], dragging);
-  if(selected && curClip && curClip.shapes.includes(selected)) drawHandles(selected);
+  const shapes = !curClip ? [] : (editingShape ? curClip.shapes.filter(s=>s!==editingShape) : curClip.shapes);
+  paint(ctx, draw.width, draw.height, shapes, dragging);
+  if(selected && curClip && curClip.shapes.includes(selected) && selected!==editingShape) drawHandles(selected);
 }
 
 function loopRender(){
