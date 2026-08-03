@@ -485,8 +485,14 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </div>
         <div class="tbar">
           <button class="tbtn" id="playbtn">Play</button>
+          <button class="tbtn" data-skip="-20" title="Back 20 seconds">« 20s</button>
+          <button class="tbtn" data-skip="-10" title="Back 10 seconds">« 10s</button>
+          <button class="tbtn" data-skip="-5"  title="Back 5 seconds">« 5s</button>
           <button class="tbtn" data-step="-1">◀ frame</button>
           <button class="tbtn" data-step="1">frame ▶</button>
+          <button class="tbtn" data-skip="5"  title="Forward 5 seconds">5s »</button>
+          <button class="tbtn" data-skip="10" title="Forward 10 seconds">10s »</button>
+          <button class="tbtn" data-skip="20" title="Forward 20 seconds">20s »</button>
           <span class="tc" id="tcode">00:00.00 <small>/ 00:00</small></span>
           <span style="flex:1"></span>
           <button class="tbtn" data-rate=".25">0.25×</button>
@@ -1513,6 +1519,12 @@ vid.addEventListener('timeupdate', updateTC);
 
 $$('[data-step]').forEach(b=>b.addEventListener('click',()=>{
   vid.pause(); vid.currentTime += (+b.dataset.step)/fps; render();
+}));
+$$('[data-skip]').forEach(b=>b.addEventListener('click',()=>{
+  if(!vid.duration) return;
+  vid.pause();
+  vid.currentTime = Math.max(0, Math.min(vid.duration, vid.currentTime + (+b.dataset.skip)));
+  render();
 }));
 $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
   vid.playbackRate = +b.dataset.rate;
