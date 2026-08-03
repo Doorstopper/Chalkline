@@ -566,6 +566,25 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </label>
 
         <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Export audio</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px">
+          <input type="checkbox" id="muteorig" style="width:auto"> Mute original sound
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <input type="checkbox" id="voiceover" style="width:auto"> Record voiceover (your mic, live)
+        </label>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:8px">
+          <button class="btn small" id="musicbtn" type="button" style="flex:none">Add music…</button>
+          <span class="hint" id="musicname" style="flex:1;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">No music</span>
+          <button class="tbtn" id="musicclear" type="button" style="display:none">×</button>
+        </div>
+        <label class="field" id="musicvolrow" style="display:none;margin-top:6px">
+          <span class="eyebrow">Music volume</span>
+          <input type="range" id="musicvol" min="0" max="100" value="35" style="width:100%">
+        </label>
+        <div class="hint">Voiceover records live as the clip plays — use headphones so the mic doesn't pick up the audio. Applies to Export clip and the reel, not the ffmpeg cuts.</div>
+
+        <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Save exports to</div>
         <button class="btn small" id="exportdir" type="button">Choose folder… (now: browser downloads)</button>
         <div class="hint" id="exportdirhint">Pick your microSD folder and clips, stills and reels save straight there — otherwise they go to your browser's download folder.</div>
@@ -2033,6 +2052,76 @@ async function writeOut(target, blob, name){
 $('#exportdir').addEventListener('click', chooseExportDir);
 (async ()=>{ try{ const d=await IDB.get('exportDir'); if(d){ exportDir=d; exportDirLabel(); } }catch(e){} })();
 
+/* ---------- export audio: mix original / live mic voiceover / music into one track ----------
+   Only the in-browser recording exports (Export clip, Compile reel) carry audio;
+   this builds a single mixed track via an AudioContext and hands it to the recorder.
+   When nothing is customised it returns null and the caller keeps the plain video audio. */
+let musicURL = null;
+$('#musicbtn').addEventListener('click',()=>{
+  const inp=document.createElement('input'); inp.type='file'; inp.accept='audio/*';
+  inp.onchange=e=>{ const f=e.target.files[0]; if(!f) return;
+    if(musicURL) URL.revokeObjectURL(musicURL);
+    musicURL=URL.createObjectURL(f);
+    $('#musicname').textContent=f.name; $('#musicbtn').textContent='Change music…';
+    $('#musicvolrow').style.display=''; $('#musicclear').style.display='';
+  };
+  inp.click();
+});
+$('#musicclear').addEventListener('click',()=>{
+  if(musicURL) URL.revokeObjectURL(musicURL);
+  musicURL=null;
+  $('#musicname').textContent='No music'; $('#musicbtn').textContent='Add music…';
+  $('#musicvolrow').style.display='none'; $('#musicclear').style.display='none';
+});
+
+const AudioMix = {
+  ctx:null, dest:null, mic:null, musicEl:null, active:false,
+  async begin(){
+    const muteOrig = $('#muteorig').checked;
+    const wantVoice = $('#voiceover').checked;
+    const wantMusic = !!musicURL;
+    /* nothing custom → let the caller add the plain video audio track as before */
+    if(!muteOrig && !wantVoice && !wantMusic) return null;
+    const Ctx = window.AudioContext||window.webkitAudioContext;
+    if(!Ctx) return null;
+    this.ctx = new Ctx();
+    try{ await this.ctx.resume(); }catch(e){}
+    this.dest = this.ctx.createMediaStreamDestination();
+    /* original match audio — taken from the video's captureStream so the element
+       keeps playing to the speakers untouched */
+    if(!muteOrig){
+      try{
+        const s = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
+        if(s && s.getAudioTracks().length) this.ctx.createMediaStreamSource(s).connect(this.dest);
+      }catch(e){}
+    }
+    if(wantVoice){
+      try{
+        this.mic = await navigator.mediaDevices.getUserMedia({audio:true});
+        this.ctx.createMediaStreamSource(this.mic).connect(this.dest);
+      }catch(e){ toast('Microphone unavailable — exporting without voiceover'); }
+    }
+    if(wantMusic){
+      try{
+        this.musicEl = new Audio(musicURL); this.musicEl.loop=false;
+        const g = this.ctx.createGain(); g.gain.value = (+$('#musicvol').value||35)/100;
+        this.ctx.createMediaElementSource(this.musicEl).connect(g);
+        g.connect(this.dest); g.connect(this.ctx.destination);   /* also audible live */
+        this.musicEl.currentTime=0; await this.musicEl.play().catch(()=>{});
+      }catch(e){}
+    }
+    this.active = true;
+    return this.dest.stream.getAudioTracks()[0] || null;
+  },
+  end(){
+    if(!this.active) return;
+    try{ this.mic && this.mic.getTracks().forEach(t=>t.stop()); }catch(e){}
+    try{ this.musicEl && this.musicEl.pause(); }catch(e){}
+    try{ this.ctx && this.ctx.close(); }catch(e){}
+    this.ctx=this.dest=this.mic=this.musicEl=null; this.active=false;
+  }
+};
+
 $('#exportpng').addEventListener('click', async ()=>{
   if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
   const target = await exportTarget();
@@ -2055,9 +2144,13 @@ async function exportClip(){
   const cv=exportCanvas(), c=cv.getContext('2d');
   const stream=cv.captureStream(30);
   try{
-    const vs = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
-    const at = vs && vs.getAudioTracks()[0];
-    if(at) stream.addTrack(at);
+    const mixTrack = await AudioMix.begin();
+    if(mixTrack){ stream.addTrack(mixTrack); }
+    else {
+      const vs = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
+      const at = vs && vs.getAudioTracks()[0];
+      if(at) stream.addTrack(at);
+    }
   }catch(e){}
 
   /* Safari's recorder speaks mp4, not webm — ask what's supported and name
@@ -2118,6 +2211,7 @@ async function exportClip(){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
     toast('Export failed — try the ffmpeg cut list instead');
   } finally {
+    AudioMix.end();
     exporting = false;
     vid.playbackRate=wasRate;
     $('#rec').classList.remove('on');
@@ -2171,9 +2265,13 @@ async function compileReel(){
   const cv=exportCanvas(), c=cv.getContext('2d');
   const stream=cv.captureStream(30);
   try{
-    const vs = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
-    const at = vs && vs.getAudioTracks()[0];
-    if(at) stream.addTrack(at);
+    const mixTrack = await AudioMix.begin();
+    if(mixTrack){ stream.addTrack(mixTrack); }
+    else {
+      const vs = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
+      const at = vs && vs.getAudioTracks()[0];
+      if(at) stream.addTrack(at);
+    }
   }catch(e){}
 
   const types=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm','video/mp4'];
@@ -2237,6 +2335,7 @@ async function compileReel(){
     console.error(err);
     toast('Reel failed partway — the ffmpeg route is more reliable for long ones');
   }finally{
+    AudioMix.end();
     exporting=false; vid.playbackRate=wasRate;
     $('#rec').classList.remove('on');
     status.textContent='Recording clip — leave this tab open';
