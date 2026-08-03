@@ -498,6 +498,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" data-rate=".25">0.25×</button>
           <button class="tbtn" data-rate=".5">0.5×</button>
           <button class="tbtn" data-rate="1" aria-pressed="true">1×</button>
+          <button class="tbtn" id="mutebtn" aria-pressed="false" title="Mute while watching">Mute</button>
           <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
           <button class="tbtn" id="changevid">Change video</button>
         </div>
@@ -1553,6 +1554,13 @@ $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
 $('#loopbtn').addEventListener('click',()=>{
   loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
 });
+/* mute the sound while watching — for review only; exports are governed by the
+   Export audio panel and are not affected by this. */
+$('#mutebtn').addEventListener('click',()=>{
+  vid.muted=!vid.muted;
+  $('#mutebtn').setAttribute('aria-pressed', vid.muted);
+  $('#mutebtn').textContent = vid.muted ? 'Muted' : 'Mute';
+});
 /* ---------- phone panel switch ---------- */
 function setPanel(p){
   document.body.classList.remove('panel-clips','panel-markup');
@@ -2107,12 +2115,14 @@ const AudioMix = {
         const g = this.ctx.createGain(); g.gain.value = (+$('#musicvol').value||35)/100;
         this.ctx.createMediaElementSource(this.musicEl).connect(g);
         g.connect(this.dest); g.connect(this.ctx.destination);   /* also audible live */
-        this.musicEl.currentTime=0; await this.musicEl.play().catch(()=>{});
+        /* playback is started by play(), so music lines up with the record start
+           rather than running during any countdown */
       }catch(e){}
     }
     this.active = true;
     return this.dest.stream.getAudioTracks()[0] || null;
   },
+  play(){ try{ if(this.musicEl){ this.musicEl.currentTime=0; this.musicEl.play().catch(()=>{}); } }catch(e){} },
   end(){
     if(!this.active) return;
     try{ this.mic && this.mic.getTracks().forEach(t=>t.stop()); }catch(e){}
@@ -2121,6 +2131,25 @@ const AudioMix = {
     this.ctx=this.dest=this.mic=this.musicEl=null; this.active=false;
   }
 };
+
+/* a get-ready count-in over the video, so you can prepare before a voiceover
+   recording actually starts */
+function countIn(n){
+  return new Promise(res=>{
+    const wrap = $('#vidbox') || (draw && draw.parentElement);
+    if(!wrap){ res(); return; }
+    const el=document.createElement('div');
+    el.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;'
+      +'font-family:var(--display);font-weight:700;font-size:20vh;color:#fff;'
+      +'text-shadow:0 3px 24px rgba(0,0,0,.85);z-index:60;pointer-events:none';
+    wrap.appendChild(el);
+    let k=n;
+    (function step(){
+      if(k<=0){ el.textContent='GO'; setTimeout(()=>el.remove(),450); res(); return; }
+      el.textContent=k; k--; setTimeout(step,750);
+    })();
+  });
+}
 
 $('#exportpng').addEventListener('click', async ()=>{
   if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
@@ -2164,15 +2193,19 @@ async function exportClip(){
   const burnAll = $('#burnmode').value==='all';
   const hold = +$('#hold').value||0;
   const start=clipStart(curClip), end=clipEnd(curClip);
-  const wasRate=vid.playbackRate;
+  const wasRate=vid.playbackRate, wasMuted=vid.muted;
 
   exporting = true;
   $('#rec').classList.add('on');
   try{
+    vid.muted=false;   /* the review mute button must not silence the export */
     vid.pause(); vid.currentTime=start; vid.playbackRate=1;
     await new Promise(r=>vid.addEventListener('seeked',r,{once:true}));
 
+    /* give yourself a beat before a live voiceover starts recording */
+    if($('#voiceover').checked) await countIn(3);
     rec.start(200);
+    AudioMix.play();
 
     const frame=(withShapes)=>{
       c.drawImage(vid,0,0,cv.width,cv.height);
@@ -2213,7 +2246,7 @@ async function exportClip(){
   } finally {
     AudioMix.end();
     exporting = false;
-    vid.playbackRate=wasRate;
+    vid.playbackRate=wasRate; vid.muted=wasMuted;
     $('#rec').classList.remove('on');
   }
 }
@@ -2280,7 +2313,7 @@ async function compileReel(){
   const chunks=[]; rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
 
   const burnAll = $('#burnmode').value==='all';
-  const wasRate = vid.playbackRate;
+  const wasRate = vid.playbackRate, wasMuted = vid.muted;
   const status = $('#rec').querySelector('span');
 
   exporting=true; loopArmed=false;
@@ -2292,8 +2325,11 @@ async function compileReel(){
   });
 
   try{
+    vid.muted=false;   /* the review mute button must not silence the export */
     vid.pause(); vid.playbackRate=1;
+    if($('#voiceover').checked) await countIn(3);
     rec.start(400);
+    AudioMix.play();
 
     for(let i=0;i<list.length;i++){
       const m=list[i];
@@ -2336,7 +2372,7 @@ async function compileReel(){
     toast('Reel failed partway — the ffmpeg route is more reliable for long ones');
   }finally{
     AudioMix.end();
-    exporting=false; vid.playbackRate=wasRate;
+    exporting=false; vid.playbackRate=wasRate; vid.muted=wasMuted;
     $('#rec').classList.remove('on');
     status.textContent='Recording clip — leave this tab open';
   }
