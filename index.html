@@ -1385,6 +1385,7 @@ function deleteClip(m){
 
 function selectClip(m){
   curClip = m;
+  selected = null;
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
   const cp=$('#clipplayer'); cp.disabled=false; cp.value = m.player || '';
@@ -1652,7 +1653,6 @@ $('#rail').addEventListener('click',e=>{
    TELESTRATION
    ============================================================ */
 const TOOLS = [
-  {id:'move',  name:'Move',      key:'m', icon:'<path d="M12 3v18M3 12h18"/><path d="M9.5 5.5L12 3l2.5 2.5M9.5 18.5L12 21l2.5-2.5M5.5 9.5L3 12l2.5 2.5M18.5 9.5L21 12l-2.5 2.5"/>'},
   {id:'spot',  name:'Spotlight', key:'1', icon:'<circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'},
   {id:'circle',name:'Circle',    key:'2', icon:'<ellipse cx="12" cy="12" rx="9" ry="6"/>'},
   {id:'arrow', name:'Run',       key:'3', icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
@@ -1684,12 +1684,11 @@ function renderTools(){
     b.addEventListener('click',()=>{ color=k; renderTools(); });
     sw.appendChild(b);
   });
-  draw.style.cursor = tool==='move' ? 'move' : 'crosshair';
-  render(); /* reflect handle visibility the moment the tool changes */
+  render();
 }
 
 /* shapes stored in normalised 0..1 coords so they survive resize + export */
-let dragging=null, moving=null;
+let dragging=null, moving=null, selected=null;
 function pt(e){
   const r=draw.getBoundingClientRect();
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
@@ -1698,7 +1697,12 @@ draw.addEventListener('pointerdown', e=>{
   if(!curClip) return toast('Pick a clip first');
   draw.setPointerCapture(e.pointerId);
   const p=pt(e);
-  if(tool==='move'){ startMove(p); return; }
+  /* direct manipulation: if you press on an existing mark (or its handle),
+     grab it — move the body, or drag an end to resize/re-aim — whatever tool
+     is active. Pressing empty space clears the selection and draws as normal. */
+  const hit = pickHandle(p);
+  if(hit){ selected = hit.s; beginMove(p, hit); render(); return; }
+  if(selected){ selected = null; render(); }
   if(tool==='erase'){ eraseAt(p); return; }
   if(tool==='disc'){
     ask('Marker label', String(discN)).then(n=>{
@@ -1719,11 +1723,14 @@ draw.addEventListener('pointerdown', e=>{
   dragging={tool,color,a:p,b:p};
 });
 draw.addEventListener('pointermove', e=>{
-  if(moving){ applyMove(pt(e)); return; }
-  if(!dragging) return;
   const p=pt(e);
-  if(dragging.tool==='pen') dragging.pts.push(p); else dragging.b=p;
-  render();
+  if(moving){ applyMove(p); return; }
+  if(dragging){
+    if(dragging.tool==='pen') dragging.pts.push(p); else dragging.b=p;
+    render(); return;
+  }
+  /* idle hover: show a move cursor over anything grabbable */
+  if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : 'crosshair';
 });
 draw.addEventListener('pointerup', ()=>{
   if(moving){ const m=moving; moving=null; if(m.moved){ commit(); } else render(); return; }
@@ -1739,10 +1746,13 @@ function eraseAt(p){
   for(let i=curClip.shapes.length-1;i>=0;i--){
     const s=curClip.shapes[i];
     const pts = s.pts || [s.a,s.b].filter(Boolean);
-    if(pts.some(q=>q && Math.hypot(q.x-p.x,q.y-p.y)<0.045)){ curClip.shapes.splice(i,1); commit(); return; }
+    if(pts.some(q=>q && Math.hypot(q.x-p.x,q.y-p.y)<0.045)){
+      if(selected===s) selected=null;
+      curClip.shapes.splice(i,1); commit(); return;
+    }
   }
 }
-$('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; commit(); }});
+$('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; selected=null; commit(); }});
 
 /* ---------- move / reposition existing markup ---------- */
 function dist(u,v){ return Math.hypot(u.x-v.x, u.y-v.y); }
@@ -1787,9 +1797,7 @@ function pickHandle(p){
   for(let i=shapes.length-1;i>=0;i--){ if(onBody(p,shapes[i],tb)) return {s:shapes[i],mode:'move'}; }
   return null;
 }
-function startMove(p){
-  const hit=pickHandle(p);
-  if(!hit){ moving=null; toast('Nothing to move here — tap on a mark'); return; }
+function beginMove(p, hit){
   const s=hit.s;
   moving={ s, mode:hit.mode, start:p, moved:false,
     orig:{ a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, pts:s.pts?s.pts.map(q=>({...q})):null } };
@@ -1817,23 +1825,21 @@ function applyMove(p){
   moving.moved=true; render();
 }
 /* grab handles, drawn on the live canvas only (never in paint(), so exports stay clean) */
-function drawHandles(){
-  if(!curClip) return;
+function drawHandles(s){
+  if(!s) return;
   const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
   ctx.save(); ctx.lineWidth=1.6*scale;
   const dot=q=>{ if(!q) return; ctx.beginPath(); ctx.arc(q.x*W,q.y*H,5.5*scale,0,7);
     ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fill(); ctx.strokeStyle='rgba(6,12,9,.75)'; ctx.stroke(); };
-  curClip.shapes.forEach(s=>{
-    if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
-    else { dot(s.a); if(s.b) dot(s.b); }
-  });
+  if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
+  else { dot(s.a); if(s.b) dot(s.b); }
   ctx.restore();
 }
 
 /* ---------- rendering ---------- */
 function render(){
   paint(ctx, draw.width, draw.height, curClip ? curClip.shapes : [], dragging);
-  if(tool==='move') drawHandles();
+  if(selected && curClip && curClip.shapes.includes(selected)) drawHandles(selected);
 }
 
 function loopRender(){
@@ -2332,7 +2338,7 @@ document.addEventListener('keydown',e=>{
   if(!$('#studio').classList.contains('on')) return;
   if((e.metaKey||e.ctrlKey) && e.key==='z'){
     e.preventDefault();
-    if(curClip&&curClip.shapes.length){ curClip.shapes.pop(); commit(); }
+    if(curClip&&curClip.shapes.length){ selected=null; curClip.shapes.pop(); commit(); }
     return;
   }
   const t=TOOLS.find(x=>x.key===e.key);
