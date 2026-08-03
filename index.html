@@ -1762,13 +1762,7 @@ draw.addEventListener('pointerdown', e=>{
     });
     return;
   }
-  if(tool==='text'){
-    ask('Text to show').then(t=>{
-      if(!t) return;
-      curClip.shapes.push({tool:'text',color,a:p,text:t}); commit();
-    });
-    return;
-  }
+  if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
   dragging={tool,color,a:p,b:p};
 });
@@ -1791,27 +1785,34 @@ draw.addEventListener('pointerup', ()=>{
 });
 function commit(){ if(curClip) touch(curClip); render(); renderClips(); save(); }
 
-/* topmost text/marker whose drawn box contains p (in px space, matching paint) */
+/* is p inside a text mark's drawn box / a marker's disc (px space, matches paint) */
+function textBoxHit(p,s){
+  if(!s.a) return false;
+  const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
+  if(s.tool==='disc') return Math.hypot((p.x-s.a.x)*W,(p.y-s.a.y)*H) < 16*scale;
+  const px=p.x*W, py=p.y*H;
+  const mc=(textBoxHit._mc||(textBoxHit._mc=document.createElement('canvas').getContext('2d')));
+  mc.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
+  const w=mc.measureText(s.text||'').width;
+  return px>=s.a.x*W-8*scale && px<=s.a.x*W+w+8*scale && py>=s.a.y*H-16*scale && py<=s.a.y*H+16*scale;
+}
+/* topmost text/marker under p */
 function textHitsAt(p){
   if(!curClip) return null;
-  const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
-  const px=p.x*W, py=p.y*H;
-  const mc=document.createElement('canvas').getContext('2d');
   for(let i=curClip.shapes.length-1;i>=0;i--){
     const s=curClip.shapes[i];
-    if(s.tool==='text' && s.a){
-      mc.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
-      const w=mc.measureText(s.text||'').width;
-      if(px>=s.a.x*W-8*scale && px<=s.a.x*W+w+8*scale &&
-         py>=s.a.y*H-16*scale && py<=s.a.y*H+16*scale) return s;
-    } else if(s.tool==='disc' && s.a){
-      if(Math.hypot((p.x-s.a.x)*W,(p.y-s.a.y)*H) < 16*scale) return s;
-    }
+    if((s.tool==='text'||s.tool==='disc') && textBoxHit(p,s)) return s;
   }
   return null;
 }
+/* place a new text mark inline at p and edit it right away (no modal) */
+function createTextInline(p){
+  const s={tool:'text', color, a:{x:p.x,y:p.y}, text:''};
+  curClip.shapes.push(s);
+  editTextInline(s, true);
+}
 /* double-click a text to edit it in place; a marker keeps the quick prompt */
-function editTextInline(s){
+function editTextInline(s, isNew){
   if(editingShape) return;
   const box=$('#vidbox'); if(!box) return;
   const r=draw.getBoundingClientRect(), bR=box.getBoundingClientRect();
@@ -1839,7 +1840,10 @@ function editTextInline(s){
   let done=false;
   const finish=(keep)=>{
     if(done) return; done=true;
-    if(keep){ const t=inp.value.trim(); if(t) s.text=t; }
+    const t=inp.value.trim();
+    if(keep && t) s.text=t;
+    /* a brand-new box left empty is discarded, so a stray click leaves nothing */
+    if(isNew && !s.text){ const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1); if(selected===s) selected=null; }
     inp.remove(); editingShape=null; commit();
   };
   inp.addEventListener('keydown',ev=>{
@@ -1887,7 +1891,7 @@ function onBody(p,s,tb){
     for(let i=1;i<s.pts.length;i++) if(distToSeg(p,s.pts[i-1],s.pts[i])<tb) return true;
     return false;
   }
-  if(s.tool==='disc'||s.tool==='text'){ return s.a && dist(p,s.a)<0.05; }
+  if(s.tool==='disc'||s.tool==='text'){ return textBoxHit(p,s); }
   if(s.tool==='zone'){
     const x0=Math.min(s.a.x,s.b.x),x1=Math.max(s.a.x,s.b.x),y0=Math.min(s.a.y,s.b.y),y1=Math.max(s.a.y,s.b.y);
     return p.x>=x0-tb && p.x<=x1+tb && p.y>=y0-tb && p.y<=y1+tb;
