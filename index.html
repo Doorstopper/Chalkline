@@ -1591,7 +1591,7 @@ $$('[data-step]').forEach(b=>b.addEventListener('click',()=>{
 }));
 $$('[data-skip]').forEach(b=>b.addEventListener('click',()=>{
   if(!vid.duration) return;
-  vid.pause();
+  /* keep the play state — skip and carry on playing if it was playing */
   vid.currentTime = Math.max(0, Math.min(vid.duration, vid.currentTime + (+b.dataset.skip)));
   render();
 }));
