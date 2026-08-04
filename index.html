@@ -568,6 +568,29 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </label>
 
         <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Export video</div>
+        <div class="pairs">
+          <label class="field"><span class="eyebrow">Resolution</span>
+            <select id="exportres">
+              <option value="480">480p</option>
+              <option value="720" selected>720p</option>
+              <option value="1080">1080p</option>
+              <option value="source">Match source</option>
+            </select>
+          </label>
+          <label class="field"><span class="eyebrow">Frame rate</span>
+            <select id="exportfps">
+              <option value="24">24 fps</option>
+              <option value="25">25 fps</option>
+              <option value="30" selected>30 fps</option>
+              <option value="50">50 fps</option>
+              <option value="60">60 fps</option>
+            </select>
+          </label>
+        </div>
+        <div class="hint">Higher settings mean bigger files. Applies to Export clip and the reel (not the ffmpeg cuts).</div>
+
+        <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Export audio</div>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px">
           <input type="checkbox" id="muteorig" style="width:auto"> Mute original sound
@@ -2109,11 +2132,14 @@ function hexA(hex,a){
 /* ============================================================
    EXPORT
    ============================================================ */
+function exportMaxH(){ const v=($('#exportres')||{}).value; return (!v||v==='source')?Infinity:(+v||720); }
+function exportFps(){ return +(($('#exportfps')||{}).value) || 30; }
 function exportCanvas(){
-  const cap = 1280;
-  const w = Math.min(vid.videoWidth||1280, cap);
-  const h = Math.round((vid.videoHeight/vid.videoWidth)*w) || 720;
-  const cv=document.createElement('canvas'); cv.width=w; cv.height=h - (h%2);
+  const vw=vid.videoWidth||1280, vh=vid.videoHeight||720;
+  let h=Math.min(vh, exportMaxH());   /* never upscale past the source */
+  let w=Math.round(vw/vh*h);
+  w-=w%2; h-=h%2;
+  const cv=document.createElement('canvas'); cv.width=Math.max(2,w); cv.height=Math.max(2,h);
   return cv;
 }
 function paintCaption(c,W,H,text){
@@ -2183,6 +2209,8 @@ async function writeOut(target, blob, name){
   download(blob,name);
   return true;
 }
+$('#exportres').addEventListener('change',()=>save(true));
+$('#exportfps').addEventListener('change',()=>save(true));
 $('#exportdir').addEventListener('click', chooseExportDir);
 (async ()=>{ try{ const d=await IDB.get('exportDir'); if(d){ exportDir=d; exportDirLabel(); } }catch(e){} })();
 
@@ -2352,7 +2380,7 @@ async function exportClip(){
   const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
-  const stream=cv.captureStream(30);
+  const stream=cv.captureStream(exportFps());
   try{
     const mixTrack = await AudioMix.begin();
     if(mixTrack){ stream.addTrack(mixTrack); }
@@ -2478,7 +2506,7 @@ async function compileReel(){
   const target = await exportTarget();   /* the confirm click is the gesture that lets us claim the folder */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
-  const stream=cv.captureStream(30);
+  const stream=cv.captureStream(exportFps());
   try{
     const mixTrack = await AudioMix.begin();
     if(mixTrack){ stream.addTrack(mixTrack); }
@@ -2850,7 +2878,9 @@ function save(quiet){
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
     Store.set(KEY,{pads:S.pads,marks:S.marks,tomb:S.tomb,offset:S.offset,
-                   videoName:S.videoName,defaultPlayer:S.defaultPlayer,fps,clock});
+                   videoName:S.videoName,defaultPlayer:S.defaultPlayer,
+                   exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
+                   fps,clock});
     if(pendingLoud){ pendingLoud=false; autoPush(); }
   },350);
 }
@@ -2869,6 +2899,8 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     S.offset = d.offset||0;
     S.defaultPlayer = d.defaultPlayer||'';
     $('#defplayer').value = S.defaultPlayer;
+    if(d.exportRes) $('#exportres').value = d.exportRes;
+    if(d.exportFpsV) $('#exportfps').value = d.exportFpsV;
     fps = d.fps||25;
     if(d.clock){ clock = {epoch:d.clock.epoch||null, acc:d.clock.acc||0}; }
     $('#offset').value=S.offset; $('#fpsin').value=fps;
