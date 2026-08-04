@@ -1806,7 +1806,7 @@ draw.addEventListener('pointerup', ()=>{
   if(!dragging) return;
   const d=dragging; dragging=null;
   const tiny = d.tool==='pen' ? d.pts.length<3 : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
-  if(!tiny){ curClip.shapes.push(d); commit(); } else render();
+  if(!tiny){ curClip.shapes.push(d); markFreezeHere(); commit(); } else render();
 });
 /* markup undo history — snapshots of the current clip's shapes */
 let undoStack=[], undoBase='[]';
@@ -1829,6 +1829,8 @@ function undoMarkup(){
   undoBase = JSON.stringify(curClip.shapes);
   touch(curClip); render(); renderClips(); save();
 }
+/* the frame you paused on to draw becomes the clip's freeze point for export */
+function markFreezeHere(){ if(curClip && vid.duration) curClip.freezeAt = vid.currentTime; }
 
 /* is p inside a text mark's drawn box / a marker's disc (px space, matches paint) */
 function textBoxHit(p,s){
@@ -1854,14 +1856,14 @@ function textHitsAt(p){
 function createTextInline(p){
   if(editingShape) return;
   const s={tool:'text', color, a:{x:p.x,y:p.y}, text:''};
-  curClip.shapes.push(s);
+  curClip.shapes.push(s); markFreezeHere();
   editTextInline(s, true);
 }
 /* place a new marker inline, prefilled with the next number */
 function createMarkerInline(p){
   if(editingShape) return;
   const s={tool:'disc', color, a:{x:p.x,y:p.y}, text:''};
-  curClip.shapes.push(s);
+  curClip.shapes.push(s); markFreezeHere();
   editTextInline(s, true, String(discN));
 }
 /* edit a text/marker in place with an inline box (no modal) */
@@ -2424,27 +2426,29 @@ async function exportClip(){
       if(withShapes) paint(c,cv.width,cv.height,curClip.shapes,null);
       paintCaption(c,cv.width,cv.height,curClip.caption);
     };
+    const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
+      await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
+    const holdFreeze=async ()=>{ if(hold<=0) return; const t0=performance.now();
+      await new Promise(res=>{ (function h(){ frame(true);
+        performance.now()-t0<hold*1000?requestAnimationFrame(h):res(); })(); }); };
+    const playTo=async to=>{
+      await vid.play().catch(e=>{ throw new Error('playback blocked during export: '+(e&&e.name)); });
+      await new Promise(res=>{ (function f(){ frame(burnAll);
+        (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); });
+      vid.pause(); };
 
-    /* hold the annotated freeze frame first — the coaching point, then the movement */
-    if(hold>0){
-      const t0=performance.now();
-      await new Promise(res=>{
-        (function h(){
-          frame(true);
-          performance.now()-t0 < hold*1000 ? requestAnimationFrame(h) : res();
-        })();
-      });
+    /* freeze where you paused to draw, if that point sits inside the clip;
+       otherwise freeze at the start as before */
+    const fz=(curClip.freezeAt!=null && curClip.freezeAt>start+0.1 && curClip.freezeAt<end-0.1)?curClip.freezeAt:null;
+    if(fz!=null){
+      await playTo(fz);      /* lead-in to the moment */
+      await seekTo(fz);      /* land exactly on the marked frame */
+      await holdFreeze();    /* freeze there with the markup */
+      await playTo(end);     /* then let it play out */
+    } else {
+      await holdFreeze();    /* freeze at the start (already seeked there) */
+      await playTo(end);
     }
-
-    await vid.play().catch(e=>{ throw new Error('playback blocked during export: '+(e&&e.name)); });
-    await new Promise(res=>{
-      (function f(){
-        frame(burnAll);
-        if(vid.currentTime>=end || vid.ended){ res(); } else requestAnimationFrame(f);
-      })();
-    });
-
-    vid.pause();
     rec.stop();
     await new Promise(r=>rec.onstop=r);
 
@@ -2547,29 +2551,29 @@ async function compileReel(){
     for(let i=0;i<list.length;i++){
       const m=list[i];
       status.textContent = `Recording ${i+1} of ${list.length} — ${m.label}`;
-
-      vid.currentTime = clipStart(m);
-      await new Promise(r=>vid.addEventListener('seeked',r,{once:true}));
-
-      if(cards) await runFor(2500, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
+      const mStart=clipStart(m), mEnd=clipEnd(m);
 
       const frame=(withShapes)=>{
         c.drawImage(vid,0,0,cv.width,cv.height);
         if(withShapes) paint(c,cv.width,cv.height,m.shapes,null);
         paintCaption(c,cv.width,cv.height,m.caption);
       };
+      const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
+        await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
+      const holdFreeze=async ()=>{ if(hold>0 && m.shapes.length) await runFor(hold*1000, ()=>frame(true)); };
+      const playTo=async to=>{ await vid.play();
+        await new Promise(res=>{ (function f(){ frame(burnAll);
+          (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); }); vid.pause(); };
 
-      if(hold>0 && m.shapes.length) await runFor(hold*1000, ()=>frame(true));
+      await seekTo(mStart);
+      if(cards) await runFor(2500, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
 
-      await vid.play();
-      const end=clipEnd(m);
-      await new Promise(res=>{
-        (function f(){
-          frame(burnAll);
-          (vid.currentTime>=end || vid.ended) ? res() : requestAnimationFrame(f);
-        })();
-      });
-      vid.pause();
+      const fz=(m.freezeAt!=null && m.freezeAt>mStart+0.1 && m.freezeAt<mEnd-0.1)?m.freezeAt:null;
+      if(fz!=null){
+        await playTo(fz); await seekTo(fz); await holdFreeze(); await playTo(mEnd);
+      } else {
+        await holdFreeze(); await playTo(mEnd);
+      }
     }
 
     rec.stop();
