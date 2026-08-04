@@ -1596,8 +1596,11 @@ $$('[data-skip]').forEach(b=>b.addEventListener('click',()=>{
   render();
 }));
 $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
-  vid.playbackRate = +b.dataset.rate;
-  $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', x===b));
+  const r=+b.dataset.rate;
+  /* clicking the already-active slow-mo toggles back to 1x */
+  const rate = (vid.playbackRate===r && r!==1) ? 1 : r;
+  vid.playbackRate = rate;
+  $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', +x.dataset.rate===rate));
 }));
 $('#loopbtn').addEventListener('click',()=>{
   loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
