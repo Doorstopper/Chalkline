@@ -2073,9 +2073,14 @@ function drawHandles(s){
 
 /* ---------- rendering ---------- */
 function render(){
-  const shapes = !curClip ? [] : (editingShape ? curClip.shapes.filter(s=>s!==editingShape) : curClip.shapes);
+  /* Freeze-frame-only: show the markup only on a frozen (paused) frame during
+     review, so it appears at the freeze and clears when the clip plays on.
+     Whole-clip keeps it on throughout. */
+  const burnAll = $('#burnmode') && $('#burnmode').value==='all';
+  const showMarks = vid.paused || burnAll;
+  const shapes = (!curClip || !showMarks) ? [] : (editingShape ? curClip.shapes.filter(s=>s!==editingShape) : curClip.shapes);
   paint(ctx, draw.width, draw.height, shapes, dragging);
-  if(selected && curClip && curClip.shapes.includes(selected) && selected!==editingShape) drawHandles(selected);
+  if(showMarks && selected && curClip && curClip.shapes.includes(selected) && selected!==editingShape) drawHandles(selected);
 }
 
 function loopRender(){
