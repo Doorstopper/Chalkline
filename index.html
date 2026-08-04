@@ -1430,6 +1430,9 @@ function renderClips(){
       <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}</div>
       ${who?`<div class="who">${esc(who)}</div>`:''}
       ${m.caption?`<div class="cap">${esc(m.caption)}</div>`:''}`;
+    /* hover shows the full caption/notes, which the card truncates */
+    b.title = [m.label + (who?' · '+who:''), m.caption, m.ask && ('Ask: '+m.ask)]
+      .filter(Boolean).join('\n');
     b.addEventListener('click',()=>selectClip(m));
     const del = document.createElement('button');
     del.className='clipdel'; del.textContent='×';
