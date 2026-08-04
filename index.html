@@ -1849,6 +1849,7 @@ function snapShapes(){ return curClip ? JSON.stringify(curClip.shapes) : '[]'; }
 function resetUndo(){ undoStack=[]; undoBase=snapShapes(); }
 function commit(){
   if(curClip){
+    if(!curClip.shapes.length) delete curClip.freezeAt;   /* no markup left → no freeze point */
     const now=JSON.stringify(curClip.shapes);
     if(now!==undoBase){ undoStack.push(undoBase); if(undoStack.length>60) undoStack.shift(); undoBase=now; }
     touch(curClip);
@@ -1861,6 +1862,7 @@ function undoMarkup(){
   if(editingShape){ if(finishTextEdit) finishTextEdit(false); }
   selected=null; editingShape=null;
   curClip.shapes = JSON.parse(undoStack.pop());
+  if(!curClip.shapes.length) delete curClip.freezeAt;
   undoBase = JSON.stringify(curClip.shapes);
   touch(curClip); render(); renderClips(); save();
 }
