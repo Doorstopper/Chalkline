@@ -2493,9 +2493,9 @@ async function exportClip(){
     const holdFreeze=async ()=>{ if(hold<=0) return; const t0=performance.now();
       await new Promise(res=>{ (function h(){ frame(true);
         performance.now()-t0<hold*1000?requestAnimationFrame(h):res(); })(); }); };
-    const playTo=async to=>{
+    const playTo=async (to,withShapes)=>{
       await vid.play().catch(e=>{ throw new Error('playback blocked during export: '+(e&&e.name)); });
-      await new Promise(res=>{ (function f(){ frame(burnAll);
+      await new Promise(res=>{ (function f(){ frame(withShapes);
         (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); });
       vid.pause(); };
 
@@ -2503,13 +2503,13 @@ async function exportClip(){
        otherwise freeze at the start as before */
     const fz=(curClip.freezeAt!=null && curClip.freezeAt>start+0.1 && curClip.freezeAt<end-0.1)?curClip.freezeAt:null;
     if(fz!=null){
-      await playTo(fz);      /* lead-in to the moment */
-      await seekTo(fz);      /* land exactly on the marked frame */
-      await holdFreeze();    /* freeze there with the markup */
-      await playTo(end);     /* then let it play out */
+      await playTo(fz,false);    /* clean lead-in to the moment */
+      await seekTo(fz);          /* land exactly on the marked frame */
+      await holdFreeze();        /* freeze there with the markup */
+      await playTo(end,burnAll); /* then play out (markup only if Whole clip) */
     } else {
-      await holdFreeze();    /* freeze at the start (already seeked there) */
-      await playTo(end);
+      await holdFreeze();        /* freeze at the start (already seeked there) */
+      await playTo(end,burnAll);
     }
     rec.stop();
     await new Promise(r=>rec.onstop=r);
@@ -2623,8 +2623,8 @@ async function compileReel(){
       const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
         await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
       const holdFreeze=async ()=>{ if(hold>0 && m.shapes.length) await runFor(hold*1000, ()=>frame(true)); };
-      const playTo=async to=>{ await vid.play();
-        await new Promise(res=>{ (function f(){ frame(burnAll);
+      const playTo=async (to,withShapes)=>{ await vid.play();
+        await new Promise(res=>{ (function f(){ frame(withShapes);
           (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); }); vid.pause(); };
 
       await seekTo(mStart);
@@ -2632,9 +2632,9 @@ async function compileReel(){
 
       const fz=(m.freezeAt!=null && m.freezeAt>mStart+0.1 && m.freezeAt<mEnd-0.1)?m.freezeAt:null;
       if(fz!=null){
-        await playTo(fz); await seekTo(fz); await holdFreeze(); await playTo(mEnd);
+        await playTo(fz,false); await seekTo(fz); await holdFreeze(); await playTo(mEnd,burnAll);
       } else {
-        await holdFreeze(); await playTo(mEnd);
+        await holdFreeze(); await playTo(mEnd,burnAll);
       }
     }
 
