@@ -28,6 +28,8 @@ set "LINK=%DESK%\Chalkline.url"
 
 > "%LINK%" echo [InternetShortcut]
 >> "%LINK%" echo URL=file:///%APP:\=/%
+>> "%LINK%" echo IconFile=%~dp0chalkline.ico
+>> "%LINK%" echo IconIndex=0
 
 echo Created shortcut: %LINK%
 echo It opens:         %APP%
