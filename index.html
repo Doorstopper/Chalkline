@@ -499,6 +499,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" data-rate=".5">0.5×</button>
           <button class="tbtn" data-rate="1" aria-pressed="true">1×</button>
           <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
+          <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Freeze</button>
           <button class="tbtn" id="changevid">Change video</button>
           <button class="tbtn" id="mutebtn" aria-pressed="false" title="Mute while watching">Mute</button>
         </div>
@@ -1456,6 +1457,7 @@ function deleteClip(m){
 function selectClip(m){
   curClip = m;
   selected = null; editingShape = null; finishTextEdit = null;
+  liveFroze = false; clearTimeout(liveHoldT);
   resetUndo();
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
@@ -1588,6 +1590,8 @@ function watchFrameRate(){
 vid.addEventListener('play', ()=>{ $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); });
 vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); });
 vid.addEventListener('timeupdate', updateTC);
+/* re-arm the live freeze whenever we move back before the marked frame */
+vid.addEventListener('seeked',()=>{ if(curClip && curClip.freezeAt!=null && vid.currentTime < curClip.freezeAt-0.1) liveFroze=false; });
 
 $$('[data-step]').forEach(b=>b.addEventListener('click',()=>{
   vid.pause(); vid.currentTime += (+b.dataset.step)/fps; render();
@@ -1607,6 +1611,10 @@ $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
 }));
 $('#loopbtn').addEventListener('click',()=>{
   loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
+});
+$('#freezebtn').addEventListener('click',()=>{
+  autoFreeze=!autoFreeze; $('#freezebtn').setAttribute('aria-pressed', autoFreeze);
+  if(!autoFreeze){ clearTimeout(liveHoldT); liveFroze=false; }
 });
 /* mute the sound while watching — for review only; exports are governed by the
    Export audio panel and are not affected by this. */
@@ -1691,9 +1699,24 @@ function customTag(){
 }
 
 let exporting = false, loopArmed = false;
+let autoFreeze = true, liveFroze = false, liveHoldT = null;
 function updateTC(){
   $('#tcode').innerHTML = fmtTC(vid.currentTime)+' <small>/ '+fmtClock(vid.duration||0)+'</small>';
   if(vid.duration) $('#railhead').style.left = (vid.currentTime/vid.duration*100)+'%';
+  /* Live freeze: while reviewing, pause at the frame you marked, hold for the
+     Freeze-hold seconds, then carry on. */
+  if(autoFreeze && !exporting && curClip && !vid.paused && curClip.freezeAt!=null){
+    const fz=curClip.freezeAt;
+    if(!liveFroze && vid.currentTime>=fz && vid.currentTime<fz+0.6){
+      liveFroze=true;
+      const h=+$('#hold').value||0;
+      if(h>0){ vid.pause();
+        clearTimeout(liveHoldT);
+        liveHoldT=setTimeout(()=>{ if(!exporting && curClip && vid.paused) vid.play().catch(()=>{}); }, h*1000);
+      }
+    }
+    if(vid.currentTime < fz-0.3) liveFroze=false;
+  }
   /* Loop only while you're actually working a clip. Watching the match end to
      end with an old clip still selected must not snap you backwards. */
   if(loopArmed && curClip && vid.currentTime < clipStart(curClip)-1) loopArmed=false;
@@ -1794,13 +1817,15 @@ draw.addEventListener('pointerdown', e=>{
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
   dragging={tool,color,a:p,b:p};
-  if(tool==='wedge') dragging.w=0.45;   /* base half-width as a fraction of length */
+  if(tool==='wedge') dragging.c={x:p.x,y:p.y};   /* free triangle: apex + two base corners */
 });
 draw.addEventListener('pointermove', e=>{
   const p=pt(e);
   if(moving){ applyMove(p); return; }
   if(dragging){
-    if(dragging.tool==='pen') dragging.pts.push(p); else dragging.b=p;
+    if(dragging.tool==='pen') dragging.pts.push(p);
+    else if(dragging.tool==='wedge') wedgeCorners(dragging,p);
+    else dragging.b=p;
     render(); return;
   }
   /* idle hover: show a move cursor over anything grabbable */
@@ -1810,7 +1835,9 @@ draw.addEventListener('pointerup', ()=>{
   if(moving){ const m=moving; moving=null; if(m.moved){ commit(); } else render(); return; }
   if(!dragging) return;
   const d=dragging; dragging=null;
-  const tiny = d.tool==='pen' ? d.pts.length<3 : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
+  const tiny = d.tool==='pen' ? d.pts.length<3
+    : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
+    : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
   if(!tiny){ curClip.shapes.push(d); markFreezeHere(); commit(); } else render();
 });
 /* markup undo history — snapshots of the current clip's shapes */
@@ -1947,13 +1974,15 @@ function distToSeg(p,a,b){
   let t = L ? ((p.x-a.x)*vx+(p.y-a.y)*vy)/L : 0; t=Math.max(0,Math.min(1,t));
   return Math.hypot(p.x-(a.x+t*vx), p.y-(a.y+t*vy));
 }
-/* passing-lane wedge geometry in pixel space: apex, base centre, base corners */
-function wedgePts(s,W,H){
-  const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
-  const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1;
-  const nx=-vy/L, ny=vx/L, hw=(s.w||0.4)*L;
-  return { apex:{x:ax,y:ay}, base:{x:bx,y:by},
-           c1:{x:bx+nx*hw,y:by+ny*hw}, c2:{x:bx-nx*hw,y:by-ny*hw}, L, nx, ny };
+/* while drawing a lane, place the two base corners symmetrically about the drag
+   point; afterwards each corner can be dragged freely to match the perspective */
+function wedgeCorners(d,q){
+  const W=draw.width,H=draw.height;
+  const ax=d.a.x*W, ay=d.a.y*H, qx=q.x*W, qy=q.y*H;
+  const vx=qx-ax, vy=qy-ay, L=Math.hypot(vx,vy)||1;
+  const nx=-vy/L, ny=vx/L, hw=0.45*L;
+  d.b={x:(qx+nx*hw)/W, y:(qy+ny*hw)/H};
+  d.c={x:(qx-nx*hw)/W, y:(qy-ny*hw)/H};
 }
 function pointInTri(p,a,b,c){
   const d1=(p.x-b.x)*(a.y-b.y)-(a.x-b.x)*(p.y-b.y);
@@ -1963,10 +1992,7 @@ function pointInTri(p,a,b,c){
 }
 /* is p on the body of shape s (for grabbing the whole thing) */
 function onBody(p,s,tb){
-  if(s.tool==='wedge'){
-    const W=draw.width,H=draw.height, g=wedgePts(s,W,H);
-    return pointInTri({x:p.x*W,y:p.y*H}, g.apex, g.c1, g.c2);
-  }
+  if(s.tool==='wedge'){ return s.b && s.c && pointInTri(p, s.a, s.b, s.c); }
   if(s.tool==='pen'){
     if(!s.pts) return false;
     for(let i=1;i<s.pts.length;i++) if(distToSeg(p,s.pts[i-1],s.pts[i])<tb) return true;
@@ -1990,10 +2016,7 @@ function pickHandle(p){
   const te=0.03, tb=0.03, shapes=curClip.shapes;
   for(let i=shapes.length-1;i>=0;i--){
     const s=shapes[i];
-    if(s.tool==='wedge'){
-      const W=draw.width,H=draw.height, g=wedgePts(s,W,H);
-      if(dist(p,{x:g.c1.x/W,y:g.c1.y/H})<te || dist(p,{x:g.c2.x/W,y:g.c2.y/H})<te) return {s,mode:'width'};
-    }
+    if(s.c && dist(p,s.c)<te) return {s,mode:'c'};
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
     if(s.pts){
@@ -2007,7 +2030,7 @@ function pickHandle(p){
 function beginMove(p, hit){
   const s=hit.s;
   moving={ s, mode:hit.mode, start:p, moved:false,
-    orig:{ a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, pts:s.pts?s.pts.map(q=>({...q})):null } };
+    orig:{ a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, c:s.c?{...s.c}:null, pts:s.pts?s.pts.map(q=>({...q})):null } };
 }
 function applyMove(p){
   const s=moving.s, o=moving.orig, cl=v=>Math.max(0,Math.min(1,v));
@@ -2017,21 +2040,17 @@ function applyMove(p){
   else if(moving.mode==='pstart'||moving.mode==='pend'){
     const idx = moving.mode==='pstart' ? 0 : o.pts.length-1;
     s.pts=o.pts.map((q,i)=> i===idx ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q});
-  } else if(moving.mode==='width'){
-    /* set the lane's base width from how far you drag out from its axis */
-    const W=draw.width,H=draw.height;
-    const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
-    const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1, nx=-vy/L, ny=vx/L;
-    const perp=Math.abs((p.x*W-bx)*nx+(p.y*H-by)*ny);
-    s.w=Math.max(0.05, Math.min(3, perp/L));
-  } else {
+  } else if(moving.mode==='c'){ s.c={x:cl(o.c.x+dx),y:cl(o.c.y+dy)}; }
+  else {
     /* whole shape: clamp the delta so no point leaves the frame */
     const xs=[], ys=[];
     if(o.a){xs.push(o.a.x);ys.push(o.a.y);}
     if(o.b){xs.push(o.b.x);ys.push(o.b.y);}
+    if(o.c){xs.push(o.c.x);ys.push(o.c.y);}
     if(o.pts) o.pts.forEach(q=>{xs.push(q.x);ys.push(q.y);});
     dx=Math.max(-Math.min(...xs), Math.min(1-Math.max(...xs), dx));
     dy=Math.max(-Math.min(...ys), Math.min(1-Math.max(...ys), dy));
+    if(o.c) s.c={x:o.c.x+dx,y:o.c.y+dy};
     if(o.a) s.a={x:o.a.x+dx,y:o.a.y+dy};
     if(o.b) s.b={x:o.b.x+dx,y:o.b.y+dy};
     if(o.pts) s.pts=o.pts.map(q=>({x:q.x+dx,y:q.y+dy}));
@@ -2046,10 +2065,7 @@ function drawHandles(s){
   const dotPx=(x,y)=>{ ctx.beginPath(); ctx.arc(x,y,5.5*scale,0,7);
     ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fill(); ctx.strokeStyle='rgba(6,12,9,.75)'; ctx.stroke(); };
   const dot=q=>{ if(q) dotPx(q.x*W,q.y*H); };
-  if(s.tool==='wedge'){
-    const g=wedgePts(s,W,H);
-    [g.apex,g.base,g.c1,g.c2].forEach(q=>dotPx(q.x,q.y));
-  }
+  if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
   else if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
   else { dot(s.a); if(s.b) dot(s.b); }
   ctx.restore();
@@ -2123,9 +2139,9 @@ function paint(c, W, H, shapes, extra){
       c.beginPath(); c.ellipse(cx,cy,Math.max(rx,6),Math.max(ry,6),0,0,7); c.stroke();
     }
     else if(s.tool==='wedge'){
-      const g=wedgePts(s,W,H);
+      if(!s.b||!s.c){ c.restore(); return; }
       c.shadowBlur=0;
-      c.beginPath(); c.moveTo(g.apex.x,g.apex.y); c.lineTo(g.c1.x,g.c1.y); c.lineTo(g.c2.x,g.c2.y); c.closePath();
+      c.beginPath(); c.moveTo(s.a.x*W,s.a.y*H); c.lineTo(s.b.x*W,s.b.y*H); c.lineTo(s.c.x*W,s.c.y*H); c.closePath();
       c.fillStyle=hexA(col,.22); c.fill();
       c.setLineDash([9*scale,7*scale]); c.lineWidth=lw*.7; c.stroke(); c.setLineDash([]);
     }
