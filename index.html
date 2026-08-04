@@ -1537,6 +1537,9 @@ function readMarksFile(f){
 $('#playbtn').addEventListener('click', togglePlay);
 function togglePlay(){
   if(!vid.src) return toast('Load a video first');
+  /* during an auto-freeze hold the frame is already paused — the first press
+     cancels the timed resume and holds it, so you get as long as you need */
+  if(liveHoldT){ clearTimeout(liveHoldT); liveHoldT=null; return; }
   if(!vid.paused){ vid.pause(); return; }
   /* play() returns a promise and browsers reject it for reasons they never show
      anywhere — power saving, autoplay policy, an embedded webview. Ignoring the
@@ -1712,7 +1715,7 @@ function updateTC(){
       const h=+$('#hold').value||0;
       if(h>0){ vid.pause();
         clearTimeout(liveHoldT);
-        liveHoldT=setTimeout(()=>{ if(!exporting && curClip && vid.paused) vid.play().catch(()=>{}); }, h*1000);
+        liveHoldT=setTimeout(()=>{ liveHoldT=null; if(!exporting && curClip && vid.paused) vid.play().catch(()=>{}); }, h*1000);
       }
     }
     if(vid.currentTime < fz-0.3) liveFroze=false;
