@@ -1737,6 +1737,7 @@ const TOOLS = [
   {id:'option',name:'Option',    key:'4', icon:'<path d="M3 18L21 6" stroke-dasharray="4 3"/><path d="M14 6h7v7"/>'},
   {id:'curve', name:'Curve',     key:'5', icon:'<path d="M3 19C7 6 16 4 21 6"/><path d="M15 3l6 3-3 6"/>'},
   {id:'zone',  name:'Space',     key:'6', icon:'<path d="M4 8h16v8H4z"/><path d="M4 12h16" stroke-dasharray="3 3"/>'},
+  {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
   {id:'pen',   name:'Pen',       key:'7', icon:'<path d="M3 20c4-1 5-9 9-9s4 6 9 4"/>'},
   {id:'disc',  name:'Marker',    key:'8', icon:'<circle cx="12" cy="12" r="8"/><path d="M12 9v6M9 12h6"/>'},
   {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'},
@@ -1790,6 +1791,7 @@ draw.addEventListener('pointerdown', e=>{
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
   dragging={tool,color,a:p,b:p};
+  if(tool==='wedge') dragging.w=0.45;   /* base half-width as a fraction of length */
 });
 draw.addEventListener('pointermove', e=>{
   const p=pt(e);
@@ -1942,8 +1944,26 @@ function distToSeg(p,a,b){
   let t = L ? ((p.x-a.x)*vx+(p.y-a.y)*vy)/L : 0; t=Math.max(0,Math.min(1,t));
   return Math.hypot(p.x-(a.x+t*vx), p.y-(a.y+t*vy));
 }
+/* passing-lane wedge geometry in pixel space: apex, base centre, base corners */
+function wedgePts(s,W,H){
+  const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+  const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1;
+  const nx=-vy/L, ny=vx/L, hw=(s.w||0.4)*L;
+  return { apex:{x:ax,y:ay}, base:{x:bx,y:by},
+           c1:{x:bx+nx*hw,y:by+ny*hw}, c2:{x:bx-nx*hw,y:by-ny*hw}, L, nx, ny };
+}
+function pointInTri(p,a,b,c){
+  const d1=(p.x-b.x)*(a.y-b.y)-(a.x-b.x)*(p.y-b.y);
+  const d2=(p.x-c.x)*(b.y-c.y)-(b.x-c.x)*(p.y-c.y);
+  const d3=(p.x-a.x)*(c.y-a.y)-(c.x-a.x)*(p.y-a.y);
+  return !(((d1<0)||(d2<0)||(d3<0)) && ((d1>0)||(d2>0)||(d3>0)));
+}
 /* is p on the body of shape s (for grabbing the whole thing) */
 function onBody(p,s,tb){
+  if(s.tool==='wedge'){
+    const W=draw.width,H=draw.height, g=wedgePts(s,W,H);
+    return pointInTri({x:p.x*W,y:p.y*H}, g.apex, g.c1, g.c2);
+  }
   if(s.tool==='pen'){
     if(!s.pts) return false;
     for(let i=1;i<s.pts.length;i++) if(distToSeg(p,s.pts[i-1],s.pts[i])<tb) return true;
@@ -1967,6 +1987,10 @@ function pickHandle(p){
   const te=0.03, tb=0.03, shapes=curClip.shapes;
   for(let i=shapes.length-1;i>=0;i--){
     const s=shapes[i];
+    if(s.tool==='wedge'){
+      const W=draw.width,H=draw.height, g=wedgePts(s,W,H);
+      if(dist(p,{x:g.c1.x/W,y:g.c1.y/H})<te || dist(p,{x:g.c2.x/W,y:g.c2.y/H})<te) return {s,mode:'width'};
+    }
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
     if(s.pts){
@@ -1990,6 +2014,13 @@ function applyMove(p){
   else if(moving.mode==='pstart'||moving.mode==='pend'){
     const idx = moving.mode==='pstart' ? 0 : o.pts.length-1;
     s.pts=o.pts.map((q,i)=> i===idx ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q});
+  } else if(moving.mode==='width'){
+    /* set the lane's base width from how far you drag out from its axis */
+    const W=draw.width,H=draw.height;
+    const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+    const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1, nx=-vy/L, ny=vx/L;
+    const perp=Math.abs((p.x*W-bx)*nx+(p.y*H-by)*ny);
+    s.w=Math.max(0.05, Math.min(3, perp/L));
   } else {
     /* whole shape: clamp the delta so no point leaves the frame */
     const xs=[], ys=[];
@@ -2009,9 +2040,14 @@ function drawHandles(s){
   if(!s) return;
   const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
   ctx.save(); ctx.lineWidth=1.6*scale;
-  const dot=q=>{ if(!q) return; ctx.beginPath(); ctx.arc(q.x*W,q.y*H,5.5*scale,0,7);
+  const dotPx=(x,y)=>{ ctx.beginPath(); ctx.arc(x,y,5.5*scale,0,7);
     ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fill(); ctx.strokeStyle='rgba(6,12,9,.75)'; ctx.stroke(); };
-  if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
+  const dot=q=>{ if(q) dotPx(q.x*W,q.y*H); };
+  if(s.tool==='wedge'){
+    const g=wedgePts(s,W,H);
+    [g.apex,g.base,g.c1,g.c2].forEach(q=>dotPx(q.x,q.y));
+  }
+  else if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
   else { dot(s.a); if(s.b) dot(s.b); }
   ctx.restore();
 }
@@ -2082,6 +2118,13 @@ function paint(c, W, H, shapes, extra){
       const cx=(s.a.x+s.b.x)/2*W, cy=(s.a.y+s.b.y)/2*H;
       const rx=Math.abs(s.b.x-s.a.x)/2*W, ry=Math.abs(s.b.y-s.a.y)/2*H;
       c.beginPath(); c.ellipse(cx,cy,Math.max(rx,6),Math.max(ry,6),0,0,7); c.stroke();
+    }
+    else if(s.tool==='wedge'){
+      const g=wedgePts(s,W,H);
+      c.shadowBlur=0;
+      c.beginPath(); c.moveTo(g.apex.x,g.apex.y); c.lineTo(g.c1.x,g.c1.y); c.lineTo(g.c2.x,g.c2.y); c.closePath();
+      c.fillStyle=hexA(col,.22); c.fill();
+      c.setLineDash([9*scale,7*scale]); c.lineWidth=lw*.7; c.stroke(); c.setLineDash([]);
     }
     else if(s.tool==='pen'){
       c.beginPath();
