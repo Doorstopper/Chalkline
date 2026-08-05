@@ -485,6 +485,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </div>
         <div class="tbar">
           <button class="tbtn" id="playbtn">Play</button>
+          <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
           <button class="tbtn" data-skip="-20" title="Back 20 seconds">« 20s</button>
           <button class="tbtn" data-skip="-10" title="Back 10 seconds">« 10s</button>
           <button class="tbtn" data-skip="-5"  title="Back 5 seconds">« 5s</button>
@@ -1623,6 +1624,13 @@ $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
 }));
 $('#loopbtn').addEventListener('click',()=>{
   loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
+});
+/* jump back to the start of the current clip — keeps the current play state */
+$('#restartbtn').addEventListener('click',()=>{
+  if(!curClip || !vid.duration) return;
+  clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
+  vid.currentTime = clipStart(curClip);
+  loopArmed = true; render();
 });
 $('#freezebtn').addEventListener('click',()=>{
   autoFreeze=!autoFreeze; $('#freezebtn').setAttribute('aria-pressed', autoFreeze);
