@@ -2041,6 +2041,28 @@ function distToSeg(p,a,b){
   let t = L ? ((p.x-a.x)*vx+(p.y-a.y)*vy)/L : 0; t=Math.max(0,Math.min(1,t));
   return Math.hypot(p.x-(a.x+t*vx), p.y-(a.y+t*vy));
 }
+/* distances in pixel space so the clickable band is even regardless of aspect ratio */
+function distToSegPx(px,py,ax,ay,bx,by){
+  const vx=bx-ax, vy=by-ay, L=vx*vx+vy*vy;
+  let t=L?((px-ax)*vx+(py-ay)*vy)/L:0; t=Math.max(0,Math.min(1,t));
+  return Math.hypot(px-(ax+t*vx), py-(ay+t*vy));
+}
+function segDistPx(p,a,b){ const W=draw.width,H=draw.height; return distToSegPx(p.x*W,p.y*H, a.x*W,a.y*H, b.x*W,b.y*H); }
+/* min distance to a curve/lob, sampled along its actual arc (matches paint()) */
+function curveDistPx(p,s){
+  const W=draw.width,H=draw.height, scale=Math.max(1,W/900);
+  const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+  const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay;
+  let cx,cy;
+  if(s.tool==='lob'){ const L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55,120*scale), sgn=ny>0?-1:1; cx=mx+nx*bow*sgn; cy=my+ny*bow*sgn; }
+  else { cx=mx-dy*0.26; cy=my+dx*0.26; }
+  const px=p.x*W, py=p.y*H; let min=1e9, prevx=ax, prevy=ay;
+  for(let i=1;i<=16;i++){ const t=i/16, u=1-t;
+    const qx=u*u*ax+2*u*t*cx+t*t*bx, qy=u*u*ay+2*u*t*cy+t*t*by;
+    const d=distToSegPx(px,py,prevx,prevy,qx,qy); if(d<min) min=d; prevx=qx; prevy=qy;
+  }
+  return min;
+}
 /* while drawing a lane, place the two base corners symmetrically about the drag
    point; afterwards each corner can be dragged freely to match the perspective */
 function wedgeCorners(d,q){
@@ -2057,12 +2079,14 @@ function pointInTri(p,a,b,c){
   const d3=(p.x-a.x)*(c.y-a.y)-(c.x-a.x)*(p.y-a.y);
   return !(((d1<0)||(d2<0)||(d3<0)) && ((d1>0)||(d2>0)||(d3>0)));
 }
-/* is p on the body of shape s (for grabbing the whole thing) */
+/* is p on the body of shape s (for grabbing the whole thing) — generous band so
+   you can click anywhere on a line/curve, not just dead on it */
 function onBody(p,s,tb){
+  const scale=Math.max(1,draw.width/900), tolPx=Math.max(16, 10*scale);
   if(s.tool==='wedge'){ return s.b && s.c && pointInTri(p, s.a, s.b, s.c); }
   if(s.tool==='pen'){
     if(!s.pts) return false;
-    for(let i=1;i<s.pts.length;i++) if(distToSeg(p,s.pts[i-1],s.pts[i])<tb) return true;
+    for(let i=1;i<s.pts.length;i++) if(segDistPx(p,s.pts[i-1],s.pts[i])<tolPx) return true;
     return false;
   }
   if(s.tool==='disc'||s.tool==='text'){ return textBoxHit(p,s); }
@@ -2074,9 +2098,10 @@ function onBody(p,s,tb){
   if(s.tool==='circle'){
     const cx=(s.a.x+s.b.x)/2, cy=(s.a.y+s.b.y)/2;
     const rx=Math.abs(s.b.x-s.a.x)/2||1e-6, ry=Math.abs(s.b.y-s.a.y)/2||1e-6;
-    return Math.hypot((p.x-cx)/rx,(p.y-cy)/ry) < 1.25;
+    return Math.hypot((p.x-cx)/rx,(p.y-cy)/ry) < 1.3;
   }
-  return distToSeg(p,s.a,s.b)<tb; /* arrow, option, curve, run */
+  if(s.tool==='curve'||s.tool==='lob'){ return curveDistPx(p,s) < tolPx; }
+  return segDistPx(p,s.a,s.b) < tolPx; /* run (double), pass, option */
 }
 /* pick a grab: endpoint handle if near one, else the shape body. Topmost wins. */
 function pickHandle(p){
