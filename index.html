@@ -1457,7 +1457,7 @@ function deleteClip(m){
 function selectClip(m){
   curClip = m;
   selected = null; editingShape = null; finishTextEdit = null;
-  liveFroze = false; clearTimeout(liveHoldT);
+  liveFrozeSet.clear(); clearTimeout(liveHoldT);
   resetUndo();
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
@@ -1522,7 +1522,7 @@ function readMarksFile(f){
     try{
       const d=JSON.parse(r.result);
       if(Array.isArray(d.marks)){
-        S.marks = d.marks.map(m=>({shapes:[],caption:'',...m}));
+        S.marks = d.marks.map(m=>migrateMark({shapes:[],caption:'',...m}));
         if(Array.isArray(d.pads)) S.pads=d.pads;
         if(typeof d.offset==='number'){ S.offset=d.offset; $('#offset').value=d.offset; }
         renderClips(); renderLog(); renderPads(); renderTagBar(); drawRail(); save();
@@ -1594,7 +1594,8 @@ vid.addEventListener('play', ()=>{ $('#playbtn').textContent='Pause'; loopRender
 vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); });
 vid.addEventListener('timeupdate', updateTC);
 /* re-arm the live freeze whenever we move back before the marked frame */
-vid.addEventListener('seeked',()=>{ if(curClip && curClip.freezeAt!=null && vid.currentTime < curClip.freezeAt-0.1) liveFroze=false; });
+vid.addEventListener('seeked',()=>{ if(!curClip) return;
+  for(const s of curClip.shapes){ if(s.t!=null && vid.currentTime < s.t-0.1) liveFrozeSet.delete(Math.round(s.t*10)); } });
 
 $$('[data-step]').forEach(b=>b.addEventListener('click',()=>{
   vid.pause(); vid.currentTime += (+b.dataset.step)/fps; render();
@@ -1617,7 +1618,7 @@ $('#loopbtn').addEventListener('click',()=>{
 });
 $('#freezebtn').addEventListener('click',()=>{
   autoFreeze=!autoFreeze; $('#freezebtn').setAttribute('aria-pressed', autoFreeze);
-  if(!autoFreeze){ clearTimeout(liveHoldT); liveFroze=false; }
+  if(!autoFreeze){ clearTimeout(liveHoldT); liveFrozeSet.clear(); }
 });
 /* mute the sound while watching — for review only; exports are governed by the
    Export audio panel and are not affected by this. */
@@ -1702,23 +1703,23 @@ function customTag(){
 }
 
 let exporting = false, loopArmed = false;
-let autoFreeze = true, liveFroze = false, liveHoldT = null;
+let autoFreeze = true, liveFrozeSet = new Set(), liveHoldT = null;
 function updateTC(){
   $('#tcode').innerHTML = fmtTC(vid.currentTime)+' <small>/ '+fmtClock(vid.duration||0)+'</small>';
   if(vid.duration) $('#railhead').style.left = (vid.currentTime/vid.duration*100)+'%';
   /* Live freeze: while reviewing, pause at the frame you marked, hold for the
      Freeze-hold seconds, then carry on. */
-  if(autoFreeze && !exporting && curClip && !vid.paused && curClip.freezeAt!=null){
-    const fz=curClip.freezeAt;
-    if(!liveFroze && vid.currentTime>=fz && vid.currentTime<fz+0.6){
-      liveFroze=true;
-      const h=+$('#hold').value||0;
-      if(h>0){ vid.pause();
+  if(autoFreeze && !exporting && curClip && !vid.paused){
+    const h=+$('#hold').value||0;
+    if(h>0){
+      const now=vid.currentTime; let hit=null;
+      for(const s of curClip.shapes){ const t=s.t; if(t==null) continue;
+        if(now>=t && now<t+0.6 && !liveFrozeSet.has(Math.round(t*10)) && (hit==null||t<hit)) hit=t; }
+      if(hit!=null){ liveFrozeSet.add(Math.round(hit*10)); vid.pause();
         clearTimeout(liveHoldT);
         liveHoldT=setTimeout(()=>{ liveHoldT=null; if(!exporting && curClip && vid.paused) vid.play().catch(()=>{}); }, h*1000);
       }
     }
-    if(vid.currentTime < fz-0.3) liveFroze=false;
   }
   /* Loop only while you're actually working a clip. Watching the match end to
      end with an old clip still selected must not snap you backwards. */
@@ -1841,7 +1842,7 @@ draw.addEventListener('pointerup', ()=>{
   const tiny = d.tool==='pen' ? d.pts.length<3
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
-  if(!tiny){ curClip.shapes.push(d); markFreezeHere(); commit(); } else render();
+  if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); commit(); } else render();
 });
 /* markup undo history — snapshots of the current clip's shapes */
 let undoStack=[], undoBase='[]';
@@ -1849,7 +1850,6 @@ function snapShapes(){ return curClip ? JSON.stringify(curClip.shapes) : '[]'; }
 function resetUndo(){ undoStack=[]; undoBase=snapShapes(); }
 function commit(){
   if(curClip){
-    if(!curClip.shapes.length) delete curClip.freezeAt;   /* no markup left → no freeze point */
     const now=JSON.stringify(curClip.shapes);
     if(now!==undoBase){ undoStack.push(undoBase); if(undoStack.length>60) undoStack.shift(); undoBase=now; }
     touch(curClip);
@@ -1862,12 +1862,25 @@ function undoMarkup(){
   if(editingShape){ if(finishTextEdit) finishTextEdit(false); }
   selected=null; editingShape=null;
   curClip.shapes = JSON.parse(undoStack.pop());
-  if(!curClip.shapes.length) delete curClip.freezeAt;
   undoBase = JSON.stringify(curClip.shapes);
   touch(curClip); render(); renderClips(); save();
 }
 /* the frame you paused on to draw becomes the clip's freeze point for export */
-function markFreezeHere(){ if(curClip && vid.duration) curClip.freezeAt = vid.currentTime; }
+/* which freeze/beat time a new mark belongs to: snap to a nearby existing beat,
+   otherwise the current frame starts a new one */
+function beatSnap(){
+  const now = vid.currentTime;
+  if(curClip) for(const s of curClip.shapes){ if(s.t!=null && Math.abs(s.t-now)<0.4) return s.t; }
+  return now;
+}
+function beatTimes(m){ return [...new Set((m.shapes||[]).map(s=>s.t).filter(t=>t!=null))].sort((a,b)=>a-b); }
+/* older clips stored one freezeAt for the whole mark — give each shape a beat time */
+function migrateMark(m){
+  const dflt = (m.freezeAt!=null) ? m.freezeAt : m.t;
+  if(m.shapes) m.shapes.forEach(s=>{ if(s.t==null) s.t=dflt; });
+  delete m.freezeAt;
+  return m;
+}
 
 /* is p inside a text mark's drawn box / a marker's disc (px space, matches paint) */
 function textBoxHit(p,s){
@@ -1892,15 +1905,15 @@ function textHitsAt(p){
 /* place a new text mark inline at p and edit it right away (no modal) */
 function createTextInline(p){
   if(editingShape) return;
-  const s={tool:'text', color, a:{x:p.x,y:p.y}, text:''};
-  curClip.shapes.push(s); markFreezeHere();
+  const s={tool:'text', color, a:{x:p.x,y:p.y}, text:'', t:beatSnap()};
+  curClip.shapes.push(s);
   editTextInline(s, true);
 }
 /* place a new marker inline, prefilled with the next number */
 function createMarkerInline(p){
   if(editingShape) return;
-  const s={tool:'disc', color, a:{x:p.x,y:p.y}, text:''};
-  curClip.shapes.push(s); markFreezeHere();
+  const s={tool:'disc', color, a:{x:p.x,y:p.y}, text:'', t:beatSnap()};
+  curClip.shapes.push(s);
   editTextInline(s, true, String(discN));
 }
 /* edit a text/marker in place with an inline box (no modal) */
@@ -2078,17 +2091,16 @@ function drawHandles(s){
 
 /* ---------- rendering ---------- */
 function render(){
-  /* Freeze-frame-only: show the markup while the playhead is inside the freeze
-     window — from the freeze frame for the hold duration — so it stays on as the
-     players move (playing or paused), and clears outside it. Whole-clip = always. */
+  /* Each mark shows only inside its own freeze window [t, t+hold], so different
+     freeze points light up as the playhead reaches them (playing or paused).
+     Whole-clip keeps everything on. */
   const burnAll = $('#burnmode') && $('#burnmode').value==='all';
-  const fz = curClip ? curClip.freezeAt : null;
-  const hold = +$('#hold').value||0;
-  const inWindow = fz!=null && vid.currentTime >= fz-0.05 && vid.currentTime <= fz + Math.max(hold,0.1);
-  const showMarks = burnAll || inWindow;
-  const shapes = (!curClip || !showMarks) ? [] : (editingShape ? curClip.shapes.filter(s=>s!==editingShape) : curClip.shapes);
+  const hold = +$('#hold').value||0, now = vid.currentTime;
+  const inWin = s => s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1);
+  const shapes = !curClip ? [] : curClip.shapes.filter(s => s!==editingShape && (burnAll || inWin(s)));
   paint(ctx, draw.width, draw.height, shapes, dragging);
-  if(showMarks && selected && curClip && curClip.shapes.includes(selected) && selected!==editingShape) drawHandles(selected);
+  const sel=selected;
+  if(sel && curClip && curClip.shapes.includes(sel) && sel!==editingShape && (burnAll || inWin(sel))) drawHandles(sel);
 }
 
 function loopRender(){
@@ -2496,34 +2508,30 @@ async function exportClip(){
     rec.start(200);
     AudioMix.play();
 
-    const frame=(withShapes)=>{
+    /* each mark shows only inside its own freeze window, so the lead-in is clean,
+       every freeze point lights up in turn, and Whole-clip shows everything */
+    const shapesAt=t=> burnAll ? curClip.shapes
+      : curClip.shapes.filter(s=> s.t!=null && t>=s.t-0.05 && t<=s.t+Math.max(hold,0.1));
+    const frame=()=>{
       c.drawImage(vid,0,0,cv.width,cv.height);
-      if(withShapes) paint(c,cv.width,cv.height,curClip.shapes,null);
+      const sh=shapesAt(vid.currentTime);
+      if(sh.length) paint(c,cv.width,cv.height,sh,null);
       paintCaption(c,cv.width,cv.height,curClip.caption);
     };
     const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
       await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
-    const holdFreeze=async ()=>{ if(hold<=0) return; const t0=performance.now();
-      await new Promise(res=>{ (function h(){ frame(true);
+    const holdAt=async ()=>{ if(hold<=0) return; const t0=performance.now();
+      await new Promise(res=>{ (function h(){ frame();
         performance.now()-t0<hold*1000?requestAnimationFrame(h):res(); })(); }); };
-    const playTo=async (to,withShapes)=>{
+    const playTo=async to=>{
       await vid.play().catch(e=>{ throw new Error('playback blocked during export: '+(e&&e.name)); });
-      await new Promise(res=>{ (function f(){ frame(withShapes);
+      await new Promise(res=>{ (function f(){ frame();
         (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); });
       vid.pause(); };
 
-    /* freeze where you paused to draw, if that point sits inside the clip;
-       otherwise freeze at the start as before */
-    const fz=(curClip.freezeAt!=null && curClip.freezeAt>start+0.1 && curClip.freezeAt<end-0.1)?curClip.freezeAt:null;
-    if(fz!=null){
-      await playTo(fz,false);    /* clean lead-in to the moment */
-      await seekTo(fz);          /* land exactly on the marked frame */
-      await holdFreeze();        /* freeze there with the markup */
-      await playTo(end,burnAll); /* then play out (markup only if Whole clip) */
-    } else {
-      await holdFreeze();        /* freeze at the start (already seeked there) */
-      await playTo(end,burnAll);
-    }
+    const beats=beatTimes(curClip).filter(t=>t>start+0.1 && t<end-0.1);
+    for(const b of beats){ await playTo(b); await seekTo(b); await holdAt(b); }
+    await playTo(end);
     rec.stop();
     await new Promise(r=>rec.onstop=r);
 
@@ -2628,27 +2636,27 @@ async function compileReel(){
       status.textContent = `Recording ${i+1} of ${list.length} — ${m.label}`;
       const mStart=clipStart(m), mEnd=clipEnd(m);
 
-      const frame=(withShapes)=>{
+      const shapesAt=t=> burnAll ? m.shapes
+        : m.shapes.filter(s=> s.t!=null && t>=s.t-0.05 && t<=s.t+Math.max(hold,0.1));
+      const frame=()=>{
         c.drawImage(vid,0,0,cv.width,cv.height);
-        if(withShapes) paint(c,cv.width,cv.height,m.shapes,null);
+        const sh=shapesAt(vid.currentTime);
+        if(sh.length) paint(c,cv.width,cv.height,sh,null);
         paintCaption(c,cv.width,cv.height,m.caption);
       };
       const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
         await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
-      const holdFreeze=async ()=>{ if(hold>0 && m.shapes.length) await runFor(hold*1000, ()=>frame(true)); };
-      const playTo=async (to,withShapes)=>{ await vid.play();
-        await new Promise(res=>{ (function f(){ frame(withShapes);
+      const holdAt=async ()=>{ if(hold>0) await runFor(hold*1000, ()=>frame()); };
+      const playTo=async to=>{ await vid.play();
+        await new Promise(res=>{ (function f(){ frame();
           (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); }); vid.pause(); };
 
       await seekTo(mStart);
       if(cards) await runFor(2500, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
 
-      const fz=(m.freezeAt!=null && m.freezeAt>mStart+0.1 && m.freezeAt<mEnd-0.1)?m.freezeAt:null;
-      if(fz!=null){
-        await playTo(fz,false); await seekTo(fz); await holdFreeze(); await playTo(mEnd,burnAll);
-      } else {
-        await holdFreeze(); await playTo(mEnd,burnAll);
-      }
+      const beats=beatTimes(m).filter(t=>t>mStart+0.1 && t<mEnd-0.1);
+      for(const b of beats){ await playTo(b); await seekTo(b); await holdAt(b); }
+      await playTo(mEnd);
     }
 
     rec.stop();
@@ -2976,7 +2984,7 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
   const d = await Store.get(KEY);
   if(d){
     S.pads = d.pads||DEFAULT_PADS;
-    S.marks = (d.marks||[]).map(m=>({shapes:[],caption:'',u:0,player:'',...m}));
+    S.marks = (d.marks||[]).map(m=>migrateMark({shapes:[],caption:'',u:0,player:'',...m}));
     S.tomb = d.tomb||[];
     S.offset = d.offset||0;
     S.defaultPlayer = d.defaultPlayer||'';
