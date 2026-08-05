@@ -1456,7 +1456,7 @@ function deleteClip(m){
 
 function selectClip(m){
   curClip = m;
-  selected = null; editingShape = null; finishTextEdit = null;
+  selection = []; editingShape = null; finishTextEdit = null;
   liveFrozeSet.clear(); clearTimeout(liveHoldT);
   resetUndo();
   $('#pre').value = m.pre; $('#post').value = m.post;
@@ -1540,6 +1540,7 @@ function togglePlay(){
   /* during an auto-freeze hold the frame is already paused — the first press
      cancels the timed resume and holds it, so you get as long as you need */
   if(liveHoldT){ clearTimeout(liveHoldT); liveHoldT=null; return; }
+  if(frameResumeT){ clearTimeout(frameResumeT); frameResumeT=null; stepWasPlaying=false; return; }
   if(!vid.paused){ vid.pause(); return; }
   /* play() returns a promise and browsers reject it for reasons they never show
      anywhere — power saving, autoplay policy, an embedded webview. Ignoring the
@@ -1597,8 +1598,15 @@ vid.addEventListener('timeupdate', updateTC);
 vid.addEventListener('seeked',()=>{ if(!curClip) return;
   for(const s of curClip.shapes){ if(s.t!=null && vid.currentTime < s.t-0.1) liveFrozeSet.delete(Math.round(s.t*10)); } });
 
+/* Frame step: nudge one frame. If the clip was playing, resume at the same speed
+   a beat after you stop clicking — so you can crawl through a moment then carry on. */
+let frameResumeT=null, stepWasPlaying=false;
 $$('[data-step]').forEach(b=>b.addEventListener('click',()=>{
+  if(!vid.paused) stepWasPlaying=true;
   vid.pause(); vid.currentTime += (+b.dataset.step)/fps; render();
+  clearTimeout(frameResumeT);
+  if(stepWasPlaying) frameResumeT=setTimeout(()=>{ frameResumeT=null; stepWasPlaying=false;
+    if(curClip && vid.paused && !exporting) vid.play().catch(()=>{}); }, 700);
 }));
 $$('[data-skip]').forEach(b=>b.addEventListener('click',()=>{
   if(!vid.duration) return;
@@ -1797,7 +1805,14 @@ function renderTools(){
 }
 
 /* shapes stored in normalised 0..1 coords so they survive resize + export */
-let dragging=null, moving=null, selected=null, editingShape=null, finishTextEdit=null;
+let dragging=null, moving=null, selection=[], marquee=null, clipboard=[], editingShape=null, finishTextEdit=null;
+const isSel = s => selection.includes(s);
+function shapeBBox(s){
+  const pts=[]; if(s.pts) pts.push(...s.pts); ['a','b','c'].forEach(k=>{ if(s[k]) pts.push(s[k]); });
+  if(!pts.length) return null;
+  const xs=pts.map(q=>q.x), ys=pts.map(q=>q.y);
+  return {x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+}
 function pt(e){
   const r=draw.getBoundingClientRect();
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
@@ -1809,13 +1824,20 @@ draw.addEventListener('pointerdown', e=>{
   if(editingShape){ if(finishTextEdit) finishTextEdit(true); return; }
   draw.setPointerCapture(e.pointerId);
   const p=pt(e);
-  /* direct manipulation: if you press on an existing mark (or its handle),
-     grab it — move the body, or drag an end to resize/re-aim — whatever tool
-     is active. Pressing empty space clears the selection and draws as normal. */
+  /* direct manipulation: press on a mark (or handle) to grab it. Shift-click adds
+     to the selection; grabbing a selected mark moves the whole selection. Pressing
+     empty space clears the selection, then either marquee-selects (no tool) or draws. */
   const hit = pickHandle(p);
-  if(hit){ selected = hit.s; beginMove(p, hit); render(); return; }
-  if(selected){ selected = null; render(); }
-  if(!tool) return;   /* no tool active: empty click just deselects, draws nothing */
+  if(hit){
+    if(e.shiftKey && hit.mode==='move'){                 /* shift-click toggles a mark */
+      isSel(hit.s) ? selection.splice(selection.indexOf(hit.s),1) : selection.push(hit.s);
+      render(); return;
+    }
+    if(!isSel(hit.s)) selection=[hit.s];                 /* grabbing an unselected mark picks it */
+    beginMove(p, hit); render(); return;
+  }
+  if(!e.shiftKey && selection.length){ selection=[]; render(); }
+  if(!tool){ marquee={a:p,b:p,add:e.shiftKey}; return; } /* no tool: drag a selection box */
   if(tool==='erase'){ eraseAt(p); return; }
   if(tool==='disc'){ createMarkerInline(p); return; }
   if(tool==='text'){ createTextInline(p); return; }
@@ -1825,6 +1847,7 @@ draw.addEventListener('pointerdown', e=>{
 });
 draw.addEventListener('pointermove', e=>{
   const p=pt(e);
+  if(marquee){ marquee.b=p; render(); return; }
   if(moving){ applyMove(p); return; }
   if(dragging){
     if(dragging.tool==='pen') dragging.pts.push(p);
@@ -1836,14 +1859,29 @@ draw.addEventListener('pointermove', e=>{
   if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
 });
 draw.addEventListener('pointerup', ()=>{
+  if(marquee){ const box=marquee; marquee=null; selectInBox(box); render(); return; }
   if(moving){ const m=moving; moving=null; if(m.moved){ commit(); } else render(); return; }
   if(!dragging) return;
   const d=dragging; dragging=null;
   const tiny = d.tool==='pen' ? d.pts.length<3
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
-  if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); commit(); } else render();
+  if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit(); } else render();
 });
+/* pick the visible marks whose bounding box overlaps the marquee rectangle */
+function selectInBox(box){
+  if(!curClip) return;
+  const x0=Math.min(box.a.x,box.b.x), x1=Math.max(box.a.x,box.b.x);
+  const y0=Math.min(box.a.y,box.b.y), y1=Math.max(box.a.y,box.b.y);
+  const hold=+$('#hold').value||0, now=vid.currentTime, burnAll=$('#burnmode') && $('#burnmode').value==='all';
+  const hit=curClip.shapes.filter(s=>{
+    const vis = burnAll || (s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1));
+    if(!vis) return false;
+    const bb=shapeBBox(s); if(!bb) return false;
+    return bb.x1>=x0 && bb.x0<=x1 && bb.y1>=y0 && bb.y0<=y1;
+  });
+  selection = box.add ? [...new Set([...selection, ...hit])] : hit;
+}
 /* markup undo history — snapshots of the current clip's shapes */
 let undoStack=[], undoBase='[]';
 function snapShapes(){ return curClip ? JSON.stringify(curClip.shapes) : '[]'; }
@@ -1860,7 +1898,7 @@ function undoMarkup(){
   if(!curClip) return;
   if(!undoStack.length) return toast('Nothing to undo');
   if(editingShape){ if(finishTextEdit) finishTextEdit(false); }
-  selected=null; editingShape=null;
+  selection=[]; editingShape=null;
   curClip.shapes = JSON.parse(undoStack.pop());
   undoBase = JSON.stringify(curClip.shapes);
   touch(curClip); render(); renderClips(); save();
@@ -1927,7 +1965,7 @@ function editTextInline(s, isNew, initialValue){
   const top =(r.top -bR.top )+s.a.y*dispH;
   const fontPx=19*scale*(dispW/W);
   const col=(COLORS[s.color]||COLORS.ball).hex;
-  editingShape=s; selected=s; render();
+  editingShape=s; selection=[s]; render();
   const inp=document.createElement('input');
   inp.type='text'; inp.value=(initialValue!=null?initialValue:(s.text||'')); inp.spellcheck=false;
   inp.style.cssText=`position:absolute;left:${left}px;top:${top}px;transform:translateY(-50%);`
@@ -1948,7 +1986,8 @@ function editTextInline(s, isNew, initialValue){
     const t=inp.value.trim();
     if(keep && t) s.text=t;
     if(isNew && !s.text){ /* empty new box discarded, so a stray click leaves nothing */
-      const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1); if(selected===s) selected=null;
+      const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1);
+      if(isSel(s)) selection.splice(selection.indexOf(s),1);
     } else if(isNew && s.tool==='disc'){ discN=(+s.text||discN)+1; }
     inp.remove(); editingShape=null; commit();
   };
@@ -1976,12 +2015,12 @@ function eraseAt(p){
     const s=curClip.shapes[i];
     const pts = s.pts || [s.a,s.b].filter(Boolean);
     if(pts.some(q=>q && Math.hypot(q.x-p.x,q.y-p.y)<0.045)){
-      if(selected===s) selected=null;
+      if(isSel(s)) selection.splice(selection.indexOf(s),1);
       curClip.shapes.splice(i,1); commit(); return;
     }
   }
 }
-$('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; selected=null; commit(); }});
+$('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; selection=[]; commit(); }});
 $('#undomarks').addEventListener('click', undoMarkup);
 
 /* ---------- move / reposition existing markup ---------- */
@@ -2045,33 +2084,34 @@ function pickHandle(p){
   for(let i=shapes.length-1;i>=0;i--){ if(onBody(p,shapes[i],tb)) return {s:shapes[i],mode:'move'}; }
   return null;
 }
+function snapGeom(s){ return { s, a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, c:s.c?{...s.c}:null, pts:s.pts?s.pts.map(q=>({...q})):null }; }
 function beginMove(p, hit){
-  const s=hit.s;
-  moving={ s, mode:hit.mode, start:p, moved:false,
-    orig:{ a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, c:s.c?{...s.c}:null, pts:s.pts?s.pts.map(q=>({...q})):null } };
+  /* a body grab moves the whole selection; a handle grab resizes just that mark */
+  const targets = (hit.mode==='move' && isSel(hit.s)) ? selection : [hit.s];
+  moving={ mode:hit.mode, start:p, moved:false, items:targets.map(snapGeom) };
 }
 function applyMove(p){
-  const s=moving.s, o=moving.orig, cl=v=>Math.max(0,Math.min(1,v));
+  const cl=v=>Math.max(0,Math.min(1,v)), mode=moving.mode;
   let dx=p.x-moving.start.x, dy=p.y-moving.start.y;
-  if(moving.mode==='a'){ s.a={x:cl(o.a.x+dx),y:cl(o.a.y+dy)}; }
-  else if(moving.mode==='b'){ s.b={x:cl(o.b.x+dx),y:cl(o.b.y+dy)}; }
-  else if(moving.mode==='pstart'||moving.mode==='pend'){
-    const idx = moving.mode==='pstart' ? 0 : o.pts.length-1;
-    s.pts=o.pts.map((q,i)=> i===idx ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q});
-  } else if(moving.mode==='c'){ s.c={x:cl(o.c.x+dx),y:cl(o.c.y+dy)}; }
-  else {
-    /* whole shape: clamp the delta so no point leaves the frame */
+  if(mode==='move'){
     const xs=[], ys=[];
-    if(o.a){xs.push(o.a.x);ys.push(o.a.y);}
-    if(o.b){xs.push(o.b.x);ys.push(o.b.y);}
-    if(o.c){xs.push(o.c.x);ys.push(o.c.y);}
-    if(o.pts) o.pts.forEach(q=>{xs.push(q.x);ys.push(q.y);});
+    moving.items.forEach(o=>{ [o.a,o.b,o.c].forEach(q=>{ if(q){xs.push(q.x);ys.push(q.y);} });
+      if(o.pts) o.pts.forEach(q=>{xs.push(q.x);ys.push(q.y);}); });
     dx=Math.max(-Math.min(...xs), Math.min(1-Math.max(...xs), dx));
     dy=Math.max(-Math.min(...ys), Math.min(1-Math.max(...ys), dy));
-    if(o.c) s.c={x:o.c.x+dx,y:o.c.y+dy};
-    if(o.a) s.a={x:o.a.x+dx,y:o.a.y+dy};
-    if(o.b) s.b={x:o.b.x+dx,y:o.b.y+dy};
-    if(o.pts) s.pts=o.pts.map(q=>({x:q.x+dx,y:q.y+dy}));
+    moving.items.forEach(o=>{ const s=o.s;
+      if(o.a) s.a={x:o.a.x+dx,y:o.a.y+dy};
+      if(o.b) s.b={x:o.b.x+dx,y:o.b.y+dy};
+      if(o.c) s.c={x:o.c.x+dx,y:o.c.y+dy};
+      if(o.pts) s.pts=o.pts.map(q=>({x:q.x+dx,y:q.y+dy}));
+    });
+  } else {
+    const o=moving.items[0], s=o.s;
+    if(mode==='a') s.a={x:cl(o.a.x+dx),y:cl(o.a.y+dy)};
+    else if(mode==='b') s.b={x:cl(o.b.x+dx),y:cl(o.b.y+dy)};
+    else if(mode==='c') s.c={x:cl(o.c.x+dx),y:cl(o.c.y+dy)};
+    else if(mode==='pstart'||mode==='pend'){ const idx=mode==='pstart'?0:o.pts.length-1;
+      s.pts=o.pts.map((q,i)=> i===idx ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q}); }
   }
   moving.moved=true; render();
 }
@@ -2099,8 +2139,16 @@ function render(){
   const inWin = s => s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1);
   const shapes = !curClip ? [] : curClip.shapes.filter(s => s!==editingShape && (burnAll || inWin(s)));
   paint(ctx, draw.width, draw.height, shapes, dragging);
-  const sel=selected;
-  if(sel && curClip && curClip.shapes.includes(sel) && sel!==editingShape && (burnAll || inWin(sel))) drawHandles(sel);
+  if(curClip) selection.forEach(s=>{
+    if(curClip.shapes.includes(s) && s!==editingShape && (burnAll || inWin(s))) drawHandles(s);
+  });
+  if(marquee){
+    const W=draw.width,H=draw.height,scale=Math.max(1,W/900);
+    const x=Math.min(marquee.a.x,marquee.b.x)*W, y=Math.min(marquee.a.y,marquee.b.y)*H;
+    const w=Math.abs(marquee.b.x-marquee.a.x)*W, h=Math.abs(marquee.b.y-marquee.a.y)*H;
+    ctx.save(); ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1.4*scale; ctx.setLineDash([6*scale,4*scale]);
+    ctx.strokeRect(x,y,w,h); ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(x,y,w,h); ctx.restore();
+  }
 }
 
 function loopRender(){
@@ -2430,7 +2478,7 @@ $('#snapstill').addEventListener('click', async ()=>{
     stream = await navigator.mediaDevices.getDisplayMedia({video:true, audio:false, preferCurrentTab:true});
   }catch(e){ if(e && e.name==='NotAllowedError') return; return toast('Screen share was cancelled'); }
   try{
-    selected=null; render();   /* keep selection handles out of the snap */
+    selection=[]; render();   /* keep selection handles out of the snap */
     await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));
     const track=stream.getVideoTracks()[0];
     let bmp, bw, bh;
@@ -2771,17 +2819,37 @@ function download(blob,name){
 document.addEventListener('keydown',e=>{
   if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if(!$('#studio').classList.contains('on')) return;
-  if((e.metaKey||e.ctrlKey) && e.key==='z'){
+  const mod = e.metaKey||e.ctrlKey;
+  if(mod && e.key==='z'){ e.preventDefault(); undoMarkup(); return; }
+  /* select-all (visible marks) / copy / cut / paste — PowerPoint-style */
+  if(mod && e.key==='a' && curClip){
     e.preventDefault();
-    undoMarkup();
+    const burnAll=$('#burnmode') && $('#burnmode').value==='all', hold=+$('#hold').value||0, now=vid.currentTime;
+    selection = curClip.shapes.filter(s=> burnAll || (s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1)));
+    render(); return;
+  }
+  if(mod && (e.key==='c'||e.key==='x') && selection.length){
+    e.preventDefault();
+    clipboard = selection.map(s=>JSON.parse(JSON.stringify(s)));
+    if(e.key==='x'){ curClip.shapes=curClip.shapes.filter(s=>!isSel(s)); selection=[]; commit(); }
+    toast(clipboard.length+(clipboard.length===1?' mark':' marks')+(e.key==='x'?' cut':' copied'));
     return;
   }
-  /* Delete/Backspace removes the selected mark (the one showing white handles) */
-  if((e.key==='Delete'||e.key==='Backspace') && selected && curClip){
+  if(mod && e.key==='v' && clipboard.length && curClip){
     e.preventDefault();
-    const i=curClip.shapes.indexOf(selected);
-    if(i>=0) curClip.shapes.splice(i,1);
-    selected=null; commit();
+    const t=beatSnap(), off=0.03, mv=q=>({x:Math.min(1,q.x+off),y:Math.min(1,q.y+off)});
+    const pasted=clipboard.map(src=>{ const s=JSON.parse(JSON.stringify(src)); s.t=t;
+      ['a','b','c'].forEach(k=>{ if(s[k]) s[k]=mv(s[k]); }); if(s.pts) s.pts=s.pts.map(mv); return s; });
+    pasted.forEach(s=>curClip.shapes.push(s));
+    selection=pasted; commit();
+    toast('Pasted '+pasted.length+(pasted.length===1?' mark':' marks'));
+    return;
+  }
+  /* Delete/Backspace removes the selected marks (those showing white handles) */
+  if((e.key==='Delete'||e.key==='Backspace') && selection.length && curClip){
+    e.preventDefault();
+    curClip.shapes = curClip.shapes.filter(s=>!isSel(s));
+    selection=[]; commit();
     return;
   }
   const t=TOOLS.find(x=>x.key===e.key);
