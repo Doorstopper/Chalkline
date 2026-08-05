@@ -2078,11 +2078,13 @@ function drawHandles(s){
 
 /* ---------- rendering ---------- */
 function render(){
-  /* Freeze-frame-only: show the markup only on a frozen (paused) frame during
-     review, so it appears at the freeze and clears when the clip plays on.
+  /* Freeze-frame-only: show the markup only when paused ON the freeze frame — so
+     a pause anywhere else stays clean, and it appears in the freeze period.
      Whole-clip keeps it on throughout. */
   const burnAll = $('#burnmode') && $('#burnmode').value==='all';
-  const showMarks = vid.paused || burnAll;
+  const atFreeze = curClip && curClip.freezeAt!=null && vid.paused &&
+                   Math.abs(vid.currentTime - curClip.freezeAt) < 0.8;
+  const showMarks = burnAll || atFreeze;
   const shapes = (!curClip || !showMarks) ? [] : (editingShape ? curClip.shapes.filter(s=>s!==editingShape) : curClip.shapes);
   paint(ctx, draw.width, draw.height, shapes, dragging);
   if(showMarks && selected && curClip && curClip.shapes.includes(selected) && selected!==editingShape) drawHandles(selected);
