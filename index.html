@@ -1788,8 +1788,7 @@ const TOOLS = [
   {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
   {id:'pen',   name:'Pen',       key:'7', icon:'<path d="M3 20c4-1 5-9 9-9s4 6 9 4"/>'},
   {id:'disc',  name:'Marker',    key:'8', icon:'<circle cx="12" cy="12" r="8"/><path d="M12 9v6M9 12h6"/>'},
-  {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'},
-  {id:'erase', name:'Erase',     key:'0', icon:'<path d="M4 18h16"/><path d="M7 15L15 7l4 4-8 8z"/>'}
+  {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'}
 ];
 let tool='spot', color='ours', discN=1;
 
@@ -1848,7 +1847,6 @@ draw.addEventListener('pointerdown', e=>{
   }
   if(!e.shiftKey && selection.length){ selection=[]; render(); }
   if(!tool){ marquee={a:p,b:p,add:e.shiftKey}; return; } /* no tool: drag a selection box */
-  if(tool==='erase'){ eraseAt(p); return; }
   if(tool==='disc'){ createMarkerInline(p); return; }
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
