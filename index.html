@@ -1779,10 +1779,10 @@ $('#rail').addEventListener('click',e=>{
 const TOOLS = [
   {id:'spot',  name:'Spotlight', key:'1', icon:'<circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'},
   {id:'circle',name:'Circle',    key:'2', icon:'<ellipse cx="12" cy="12" rx="9" ry="6"/>'},
-  {id:'arrow', name:'Run',       key:'3', icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
-  {id:'pass',  name:'Pass',      key:'',  icon:'<path d="M3 16L17 6"/><path d="M6 21L20 11"/><path d="M14 6h7v7"/>'},
-  {id:'lob',   name:'Over top',  key:'',  icon:'<path d="M3 19Q11 3 21 9" stroke-dasharray="3 2"/><path d="M14 6h7v7"/>'},
-  {id:'option',name:'Option',    key:'4', icon:'<path d="M3 18L21 6" stroke-dasharray="4 3"/><path d="M14 6h7v7"/>'},
+  {id:'arrow', name:'Run',       key:'3', icon:'<path d="M3 16L18 7"/><path d="M6 21L21 12"/><path d="M14 6h7v7"/>'},
+  {id:'pass',  name:'Pass',      key:'',  icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
+  {id:'lob',   name:'Over top',  key:'',  icon:'<path d="M3 19Q11 3 21 9"/><path d="M14 6h7v7"/>'},
+  {id:'option',name:'Option',    key:'4', icon:'<path d="M3 18L21 6" stroke-dasharray="1.5 3"/><path d="M14 6h7v7"/>'},
   {id:'curve', name:'Curve',     key:'5', icon:'<path d="M3 19C7 6 16 4 21 6"/><path d="M15 3l6 3-3 6"/>'},
   {id:'zone',  name:'Space',     key:'6', icon:'<path d="M4 8h16v8H4z"/><path d="M4 12h16" stroke-dasharray="3 3"/>'},
   {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
@@ -2233,13 +2233,7 @@ function paint(c, W, H, shapes, extra){
       s.pts.forEach((p,i)=> i? c.lineTo(p.x*W,p.y*H) : c.moveTo(p.x*W,p.y*H));
       c.stroke();
     }
-    else if(s.tool==='arrow'||s.tool==='option'){
-      if(s.tool==='option') c.setLineDash([11*scale,8*scale]);
-      line(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H);
-      c.setLineDash([]);
-      head(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H,scale);
-    }
-    else if(s.tool==='pass'){   /* pass: twin parallel lines + arrowhead */
+    else if(s.tool==='arrow'){   /* Run: twin parallel lines + arrowhead */
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1, o=2.6*scale;
       const nx=-vy/L*o, ny=vx/L*o, hb=13*scale, ex=bx-vx/L*hb, ey=by-vy/L*hb;
@@ -2249,14 +2243,18 @@ function paint(c, W, H, shapes, extra){
       c.lineWidth=lw;
       head(c, ax,ay, bx,by, scale);
     }
-    else if(s.tool==='lob'){    /* over the top: lofted dashed arc + arrowhead */
+    else if(s.tool==='pass'||s.tool==='option'){   /* Pass: solid line · Option: dotted */
+      if(s.tool==='option') c.setLineDash([1.5*scale, 6*scale]);
+      line(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H);
+      c.setLineDash([]);
+      head(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H,scale);
+    }
+    else if(s.tool==='lob'){    /* Over the top: solid lofted arc + arrowhead */
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1;
       const nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55, 120*scale), sgn=ny>0?-1:1;
       const cx=mx+nx*bow*sgn, cy=my+ny*bow*sgn;
-      c.setLineDash([12*scale,7*scale]);
       c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
-      c.setLineDash([]);
       head(c, cx,cy, bx,by, scale);
     }
     else if(s.tool==='curve'){
