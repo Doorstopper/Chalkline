@@ -2146,20 +2146,27 @@ async function trackRing(s){
   if(tracking || !curClip || !s || s.tool!=='ground' || !s.kf || !s.kf.length) return;
   if(!videoReadable()) return warnBlank();
   delete s._live;
-  const WW=320, arr=(vid.videoHeight||9)/(vid.videoWidth||16), WH=Math.max(2,Math.round(WW*arr));
+  /* Higher res than before so a small youth player is more than a few pixels. */
+  const WW=640, arr=(vid.videoHeight||9)/(vid.videoWidth||16), WH=Math.max(2,Math.round(WW*arr));
   const wc=document.createElement('canvas'); wc.width=WW; wc.height=WH;
   const wx=wc.getContext('2d',{willReadFrequently:true});
-  const cX=x=>Math.min(WW-1,Math.max(0,x)), cY=y=>Math.min(WH-1,Math.max(0,y));
+  const cX=x=>Math.min(WW-1,Math.max(0,x))|0, cY=y=>Math.min(WH-1,Math.max(0,y))|0;
   const grab=()=>{ wx.drawImage(vid,0,0,WW,WH); return wx.getImageData(0,0,WW,WH).data; };
-  const gray=(d,x,y)=>{ const i=(cY(y)*WW+cX(x))*4; return d[i]*0.3+d[i+1]*0.59+d[i+2]*0.11; };
+  /* Match in RGB, not grey: the jersey has a distinctive colour; grass/feet do not. */
+  const px=(d,x,y)=>{ const i=(cY(y)*WW+cX(x))*4; return [d[i],d[i+1],d[i+2]]; };
   const startT=s.kf[0].t, endT=clipEnd(curClip);
   vid.pause(); vid.currentTime=startT; await new Promise(r=>vid.addEventListener('seeked',r,{once:true}));
-  let cx=Math.round(s.kf[0].x*WW), cy=Math.round(s.kf[0].y*WH);
-  const HS=Math.round(Math.min(Math.max((s.r||0.06)*WW,12),30));
+  /* The ring sits at the feet on the grass — which looks the same everywhere, so a
+     template there locks onto the panning background. Instead track the player's
+     BODY/JERSEY, sampled above the ring, and derive the feet from it. */
+  let fx=Math.round(s.kf[0].x*WW), fy=Math.round(s.kf[0].y*WH);
+  const HS=Math.round(Math.min(Math.max((s.r||0.06)*WW,14),34));   // jersey patch half-size
+  const bodyOff=Math.round(HS*3);                                  // torso sits ~this far above the feet
+  let tx=fx, ty=fy-bodyOff;                                        // tracked point = jersey/torso
   const d0=grab(); const TS=[];
-  for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2) TS.push(gray(d0,cx+i,cy+j));
-  s.kf=[{t:startT, x:cx/WW, y:cy/WH}];
-  const SR=Math.round(HS*1.1), step=0.12;
+  for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2) TS.push(px(d0,tx+i,ty+j));
+  s.kf=[{t:startT, x:fx/WW, y:fy/WH}];
+  const SR=Math.round(HS*1.6), step=0.1;                           // wider search per step
   tracking=true; const wasExp=exporting; exporting=true; toast('Tracking player…');
   try{
     vid.playbackRate=1; await vid.play();
@@ -2168,13 +2175,24 @@ async function trackRing(s){
       const cb=()=>{
         if(!curClip || vid.paused || vid.currentTime>=endT || vid.ended){ res(); return; }
         if(vid.currentTime>=nextT){
-          const d=grab(); let best=Infinity, bx=cx, by=cy;
+          const d=grab(); let best=Infinity, bx=tx, by=ty;
           for(let dy=-SR;dy<=SR;dy+=2) for(let dx=-SR;dx<=SR;dx+=2){
             let sad=0,k=0;
-            for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2) sad+=Math.abs(gray(d,cx+dx+i,cy+dy+j)-TS[k++]);
-            if(sad<best){ best=sad; bx=cx+dx; by=cy+dy; }
+            for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2){
+              const p=px(d,tx+dx+i,ty+dy+j), t=TS[k++];
+              sad+=Math.abs(p[0]-t[0])+Math.abs(p[1]-t[1])+Math.abs(p[2]-t[2]);
+            }
+            if(sad<best){ best=sad; bx=tx+dx; by=ty+dy; }
           }
-          cx=bx; cy=by; s.kf.push({t:vid.currentTime, x:cx/WW, y:cy/WH}); nextT=vid.currentTime+step;
+          tx=bx; ty=by; fx=tx; fy=ty+bodyOff;
+          s.kf.push({t:vid.currentTime, x:fx/WW, y:fy/WH}); nextT=vid.currentTime+step;
+          /* Slowly fold the new patch into the template so gradual turns/lighting
+             don't break the lock (keep 85% of the original appearance). */
+          let k2=0;
+          for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2){
+            const p=px(d,tx+i,ty+j), t=TS[k2];
+            TS[k2++]=[t[0]*0.85+p[0]*0.15, t[1]*0.85+p[1]*0.15, t[2]*0.85+p[2]*0.15];
+          }
         }
         (vid.requestVideoFrameCallback?vid.requestVideoFrameCallback(cb):requestAnimationFrame(cb));
       };
