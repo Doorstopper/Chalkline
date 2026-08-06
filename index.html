@@ -569,6 +569,19 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </div>
 
         <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Selected mark — time on screen</div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap" id="timingrow">
+          <button class="tbtn" data-linger="0" disabled title="On the freeze frame only — disappears when play resumes">Freeze only</button>
+          <button class="tbtn" data-linger="1" disabled>1s</button>
+          <button class="tbtn" data-linger="2" disabled>2s</button>
+          <button class="tbtn" data-linger="4" disabled>4s</button>
+        </div>
+        <label class="field" style="margin-top:6px"><span class="eyebrow">Linger after freeze (s)</span>
+          <input type="number" id="lingerin" min="0" max="30" step="0.5" placeholder="uses freeze hold" disabled>
+        </label>
+        <div class="hint">Select a mark first. 0 = shows on the freeze then disappears; higher = stays while play continues, then fades out.</div>
+
+        <div class="sep"></div>
 
         <label class="field"><span class="eyebrow">Category</span>
           <select id="recat" disabled><option>Pick a clip first</option></select>
@@ -898,12 +911,14 @@ const DEFAULT_PADS = [
   {label:'Passing option', color:'path',   pre:7,  post:5,  ask:'Who else was on? Why did you choose that one?'},
   {label:'Defending',      color:'theirs', pre:8,  post:6,  ask:'Which way were you sending them?'},
   {label:'Goal or chance', color:'flood',  pre:14, post:10, ask:'What started this? Go back three passes.'},
-  {label:'Team shape',     color:'ball',   pre:7,  post:8,  ask:'Are we too close together or too far apart?'}
+  {label:'Team shape',     color:'ball',   pre:7,  post:8,  ask:'Are we too close together or too far apart?'},
+  {label:'Attacking',      color:'path',   pre:10, post:8,  ask:'What was on before the final ball?'}
 ];
 
 /* session state */
 let S = {
   pads: DEFAULT_PADS,
+  padsV: 1,           // default-pads migration version
   marks: [],          // {id, t, padIndex, label, color, pre, post, ask, caption, shapes:[], player, u}
   tomb: [],           // ids deleted anywhere, so a merge can't resurrect them
   offset: 0,
@@ -2353,6 +2368,29 @@ $('#planebtn').addEventListener('click',()=>{
   toast(turnOn ? '3D plane on — angle it up (away) or down (toward you)' : '3D plane off');
   commit();
 });
+/* Per-mark time on screen: 0 = freeze-only, N = linger N seconds then fade,
+   empty = default (the global freeze hold). Applies to the selected mark(s). */
+function setLinger(v){
+  if(!curClip) return;
+  const marks=selection.filter(s=>s.t!=null && s.tool!=='ground');
+  if(!marks.length) return toast('Select a mark first');
+  marks.forEach(s=>{ if(v==null) delete s.linger; else s.linger=v; });
+  touch(curClip); commit(); syncMarkTiming();
+  toast(v==null?'Mark timing: default' : v===0?'Mark shows on the freeze only' : 'Mark stays '+v+'s, then fades');
+}
+$$('#timingrow [data-linger]').forEach(b=> b.addEventListener('click',()=>setLinger(+b.dataset.linger)));
+$('#lingerin').addEventListener('change',()=>{ const raw=$('#lingerin').value.trim(); setLinger(raw===''?null:Math.max(0,+raw||0)); });
+let _timingSig=null;
+function syncMarkTiming(){
+  const inp=$('#lingerin'); if(!inp) return;
+  const marks=selection.filter(s=>s.t!=null && s.tool!=='ground');
+  const cur = marks.length ? (marks[0].linger==null?'d':marks[0].linger) : 'x';
+  const sig = marks.length+':'+cur;
+  if(sig===_timingSig) return; _timingSig=sig;
+  const dis=!marks.length, L = dis?null:marks[0].linger;
+  inp.disabled=dis; inp.value = (L!=null)?L:'';
+  $$('#timingrow [data-linger]').forEach(b=>{ b.disabled=dis; b.setAttribute('aria-pressed', L!=null && +b.dataset.linger===L); });
+}
 $('#trackbtn').addEventListener('click',()=>{
   const ring = selection.find(s=>s.tool==='ground') || (curClip && curClip.shapes.filter(s=>s.tool==='ground').pop());
   if(!ring) return toast('Place a Ground ring on the player, then Track');
@@ -2498,13 +2536,22 @@ async function trackRing(s){
   }
 }
 /* is a shape visible at video time t (per-beat window, or a ground ring's span) */
-function shapeVisibleAt(s,t,hold,burnAll){
-  if(burnAll) return true;
-  /* a ground ring persists from placement to the end of the clip (holds on the
-     last keyframe after tracking ends), so it doesn't blink out */
-  if(s.tool==='ground'&&s.kf&&s.kf.length) return t>=s.kf[0].t-0.1;
-  return s.t!=null && t>=s.t-0.05 && t<=s.t+Math.max(hold,0.1);
+/* Opacity (0..1) of a mark at video time t. Per-mark linger:
+   • linger undefined → the original behaviour: visible for the global freeze hold.
+   • linger === 0     → freeze-only: on the frozen frame, gone when play resumes.
+   • linger > 0       → stays that many seconds past the beat, fading the last 0.5s. */
+function shapeAlphaAt(s,t,hold,burnAll){
+  if(burnAll) return 1;
+  if(s.tool==='ground'&&s.kf&&s.kf.length) return t>=s.kf[0].t-0.1 ? 1 : 0;
+  if(s.t==null) return 0;
+  const L=s.linger;
+  if(L===0) return (t>=s.t-0.05 && t<=s.t+0.12) ? 1 : 0;   /* freeze only */
+  const winEnd=s.t+Math.max(L>0?L:hold, 0.1);
+  if(t<s.t-0.05 || t>winEnd) return 0;
+  if(L>0){ const fade=0.5; if(t>winEnd-fade) return Math.max(0,(winEnd-t)/fade); }
+  return 1;
 }
+function shapeVisibleAt(s,t,hold,burnAll){ return shapeAlphaAt(s,t,hold,burnAll) > 0.02; }
 /* is p on the body of shape s (for grabbing the whole thing) — generous band so
    you can click anywhere on a line/curve, not just dead on it */
 function onBody(p,s,tb){
@@ -2670,6 +2717,7 @@ function render(){
   const hold = +$('#hold').value||0, now = vid.currentTime;
   const vis = s => shapeVisibleAt(s, now, hold, burnAll);
   const shapes = (!curClip || marksHidden) ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
+  shapes.forEach(s=> s._alpha = shapeAlphaAt(s, now, hold, burnAll));   /* per-mark fade */
   /* live preview: the shape being dragged, or the Connect line in progress (with a
      rubber-band segment out to the cursor) */
   const chainPrev = chaining ? {tool:'chain', color:chaining.color,
@@ -2706,6 +2754,7 @@ function render(){
     ctx.save(); ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1.4*scale; ctx.setLineDash([6*scale,4*scale]);
     ctx.strokeRect(x,y,w,h); ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(x,y,w,h); ctx.restore();
   }
+  if(typeof syncMarkTiming==='function') syncMarkTiming();   /* keep the timing panel in sync with the selection */
 }
 
 function loopRender(){
@@ -2725,6 +2774,7 @@ function paint(c, W, H, shapes, extra){
     const x=Math.min(s.a.x,s.b.x)*W, y=Math.min(s.a.y,s.b.y)*H;
     const w=Math.abs(s.b.x-s.a.x)*W, h=Math.abs(s.b.y-s.a.y)*H;
     c.save();
+    c.globalAlpha=s._alpha==null?1:s._alpha;
     const zc=(COLORS[s.color]||COLORS.ball).hex;
     c.fillStyle=hexA(zc,.22); c.fillRect(x,y,w,h);
     c.strokeStyle=zc; c.lineWidth=lw*.7; c.setLineDash([9*scale,7*scale]);
@@ -2745,12 +2795,13 @@ function paint(c, W, H, shapes, extra){
       g.addColorStop(0,'rgba(0,0,0,1)'); g.addColorStop(1,'rgba(0,0,0,0)');
       o.fillStyle=g; o.beginPath(); o.arc(cx,cy,r,0,7); o.fill();
     });
-    c.drawImage(off,0,0);
+    const dimA=Math.max(...spots.map(s=>s._alpha==null?1:s._alpha));
+    c.save(); c.globalAlpha=dimA; c.drawImage(off,0,0); c.restore();
     /* thin ring so the lit player reads as chosen, not just bright */
     spots.forEach(s=>{
       const cx=s.a.x*W, cy=s.a.y*H;
       const r=Math.max(Math.hypot((s.b.x-s.a.x)*W,(s.b.y-s.a.y)*H), 18*scale);
-      c.save(); c.strokeStyle=hexA((COLORS[s.color]||COLORS.ball).hex,.8); c.lineWidth=lw*.6;
+      c.save(); c.globalAlpha=s._alpha==null?1:s._alpha; c.strokeStyle=hexA((COLORS[s.color]||COLORS.ball).hex,.8); c.lineWidth=lw*.6;
       c.beginPath(); c.arc(cx,cy,r*.82,0,7); c.stroke(); c.restore();
     });
   }
@@ -2759,6 +2810,7 @@ function paint(c, W, H, shapes, extra){
     if(s.tool==='zone'||s.tool==='spot') return;
     const col=(COLORS[s.color]||COLORS.ball).hex;
     c.save();
+    c.globalAlpha=s._alpha==null?1:s._alpha;
     c.strokeStyle=col; c.fillStyle=col; c.lineWidth=lw;
     c.lineCap='round'; c.lineJoin='round';
     c.shadowColor='rgba(0,0,0,.6)'; c.shadowBlur=5*scale;
@@ -3153,6 +3205,7 @@ $('#exportpng').addEventListener('click', async ()=>{
   const target = await exportTarget();
   const cv=exportCanvas(), c=cv.getContext('2d');
   c.drawImage(vid,0,0,cv.width,cv.height);
+  curClip.shapes.forEach(s=>s._alpha=1);   /* a still shows every mark fully */
   paint(c,cv.width,cv.height,curClip.shapes,null);
   paintCaption(c,cv.width,cv.height,curClip.caption);
   const name = safe(curClip.label)+'-'+Math.round(curClip.t)+'s.png';
@@ -3260,7 +3313,7 @@ async function exportClip(){
 
     /* each mark shows only inside its own freeze window, so the lead-in is clean,
        every freeze point lights up in turn, and Whole-clip shows everything */
-    const shapesAt=t=> curClip.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll));
+    const shapesAt=t=>{ const sh=curClip.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll)); sh.forEach(s=>s._alpha=shapeAlphaAt(s,t,hold,burnAll)); return sh; };
     const frame=()=>{
       c.drawImage(vid,0,0,cv.width,cv.height);
       const sh=shapesAt(vid.currentTime);
@@ -3398,7 +3451,7 @@ async function compileReel(){
       status.textContent = `Recording ${i+1} of ${list.length} — ${m.label}`;
       const mStart=clipStart(m), mEnd=clipEnd(m);
 
-      const shapesAt=t=> m.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll));
+      const shapesAt=t=>{ const sh=m.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll)); sh.forEach(s=>s._alpha=shapeAlphaAt(s,t,hold,burnAll)); return sh; };
       const frame=()=>{
         c.drawImage(vid,0,0,cv.width,cv.height);
         const sh=shapesAt(vid.currentTime);
@@ -3778,7 +3831,7 @@ function save(quiet){
   if(!quiet) pendingLoud=true;
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
-    Store.set(KEY,{pads:S.pads,marks:S.marks,tomb:S.tomb,offset:S.offset,
+    Store.set(KEY,{pads:S.pads,padsV:S.padsV,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
                    fps,clock});
@@ -3795,6 +3848,13 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
   const d = await Store.get(KEY);
   if(d){
     S.pads = d.pads||DEFAULT_PADS;
+    /* one-time: add the Attacking default tag to older sessions (won't re-add if removed later) */
+    S.padsV = d.padsV||0;
+    if(S.padsV<1){
+      if(!S.pads.some(p=>(p.label||'').toLowerCase()==='attacking'))
+        S.pads=[...S.pads, {label:'Attacking',color:'path',pre:10,post:8,ask:'What was on before the final ball?'}];
+      S.padsV=1;
+    }
     S.marks = (d.marks||[]).map(m=>migrateMark({shapes:[],caption:'',u:0,player:'',...m}));
     S.tomb = d.tomb||[];
     S.offset = d.offset||0;
