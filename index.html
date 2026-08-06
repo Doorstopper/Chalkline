@@ -2436,10 +2436,20 @@ function onBody(p,s,tb){
 /* pick a grab: endpoint handle if near one, else the shape body. Topmost wins. */
 function pickHandle(p){
   const te=0.03, tb=0.03, shapes=curClip.shapes;
+  const W=draw.width, H=draw.height, hscale=Math.max(1,W/900), grabPx=14*hscale;
+  /* A ground ring's centre is a dedicated MOVE grip, tested before every other
+     mark so it stays grabbable even when other markups sit on top of it — and it
+     only ever moves the ring, never resizes it. */
+  for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
+    if(s.tool!=='ground') continue;
+    const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
+    if(ctr && Math.hypot((p.x-ctr.x)*W,(p.y-ctr.y)*H) < grabPx) return {s,mode:'gmove'};
+  }
   for(let i=shapes.length-1;i>=0;i--){
     const s=shapes[i];
-    if(s.tool==='ground'){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
-      if(ctr && s.r!=null && dist(p,{x:ctr.x+s.r,y:ctr.y})<te) return {s,mode:'gradius'};
+    if(s.tool==='ground'){   /* edge dot resizes — only once the ring is selected */
+      if(isSel(s)){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
+        if(ctr && s.r!=null && dist(p,{x:ctr.x+s.r,y:ctr.y})<te) return {s,mode:'gradius'}; }
       continue; }
     /* Resize/adjust handles belong only to the SELECTED mark. An unselected mark
        falls through to the body-grab below, so the first drag just moves it and
@@ -2546,6 +2556,22 @@ function render(){
   const chainPrev = chaining ? {tool:'chain', color:chaining.color,
     pts: chainCursor ? chaining.pts.concat([chainCursor]) : chaining.pts} : null;
   paint(ctx, draw.width, draw.height, shapes, marksHidden?null:(dragging||chainPrev));
+  /* Persistent move grip on every ground ring so you always know exactly where to
+     grab it — drawn on the live canvas only, so exports stay clean. */
+  if(!marksHidden && curClip){
+    const W=draw.width,H=draw.height,scale=Math.max(1,W/900),g=11*scale;
+    shapes.filter(s=>s.tool==='ground').forEach(s=>{
+      const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a; if(!ctr) return;
+      const x=ctr.x*W, y=ctr.y*H;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(x,y,g,0,7);
+      ctx.fillStyle='rgba(6,12,9,.6)'; ctx.fill();
+      ctx.lineWidth=2*scale; ctx.strokeStyle='rgba(255,255,255,.95)'; ctx.stroke();
+      ctx.lineWidth=1.6*scale; const a=g*0.55;   /* move crosshair */
+      ctx.beginPath(); ctx.moveTo(x-a,y); ctx.lineTo(x+a,y); ctx.moveTo(x,y-a); ctx.lineTo(x,y+a); ctx.stroke();
+      ctx.restore();
+    });
+  }
   if(!marksHidden && curClip) selection.forEach(s=>{
     if(curClip.shapes.includes(s) && s!==editingShape && vis(s)) drawHandles(s);
   });
