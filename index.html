@@ -508,6 +508,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" data-skip="20" title="Forward 20 seconds">20s »</button>
           <span class="tc" id="tcode">00:00.00 <small>/ 00:00</small></span>
           <span style="flex:1"></span>
+          <button class="tbtn" data-rate=".1">0.1×</button>
           <button class="tbtn" data-rate=".25">0.25×</button>
           <button class="tbtn" data-rate=".5">0.5×</button>
           <button class="tbtn" data-rate="1" aria-pressed="true">1×</button>
@@ -2253,12 +2254,12 @@ $('#flipbtn').addEventListener('click',()=>{
 });
 $('#planebtn').addEventListener('click',()=>{
   if(!curClip) return;
-  const targets=selection.filter(s=>s.tool==='curve'||s.tool==='lob');
-  if(!targets.length) return toast('Select a curved or over-the-top arrow first, then Plane');
-  /* cycle flat → going away → coming toward → flat */
-  targets.forEach(s=>{ const cur=s.depth||0; s.depth = cur===0 ? 0.85 : cur>0 ? -0.85 : 0; });
-  const st=targets[0].depth;
-  toast(st>0?'Going away from you (3D)':st<0?'Coming toward you (3D)':'Flat again');
+  const ARROWS=['arrow','pass','option','lob','curve'];
+  const targets=selection.filter(s=>ARROWS.includes(s.tool));
+  if(!targets.length) return toast('Select an arrow first, then Plane');
+  const turnOn=!targets.every(s=>s.plane);   /* any off → turn all on, else all off */
+  targets.forEach(s=>{ if(turnOn) s.plane=1; else delete s.plane; });
+  toast(turnOn ? '3D plane on — angle it up (away) or down (toward you)' : '3D plane off');
   commit();
 });
 $('#trackbtn').addEventListener('click',()=>{
@@ -2653,6 +2654,9 @@ function paint(c, W, H, shapes, extra){
     c.lineCap='round'; c.lineJoin='round';
     c.shadowColor='rgba(0,0,0,.6)'; c.shadowBlur=5*scale;
 
+    if(s.plane && (s.tool==='arrow'||s.tool==='pass'||s.tool==='option'||s.tool==='lob'||s.tool==='curve')){
+      if(drawPlanedArrow(c,s,W,H,scale,lw,col)){ c.restore(); return; }
+    }
     if(s.tool==='circle'){
       const cx=(s.a.x+s.b.x)/2*W, cy=(s.a.y+s.b.y)/2*H;
       const rx=Math.abs(s.b.x-s.a.x)/2*W, ry=Math.abs(s.b.y-s.a.y)/2*H;
@@ -2719,30 +2723,16 @@ function paint(c, W, H, shapes, extra){
       const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1;
       const nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55, 120*scale), sgn=(ny>0?-1:1)*(s.flip?-1:1);
       const cx=mx+nx*bow*sgn, cy=my+ny*bow*sgn;
-      const d=s.depth||0;
-      if(d){                       /* 3D plane: taper the ribbon + scale the head */
-        const wS=Math.max(1.2, lw*(1+0.3*d)), wE=Math.max(1.2, lw*(1-0.6*d));
-        taperedCurve(c, ax,ay, cx,cy, bx,by, wS, wE);
-        head(c,cx,cy,bx,by, scale*Math.max(0.5,Math.min(1.4, wE/lw)));
-      } else {
-        c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
-        head(c, cx,cy, bx,by, scale);
-      }
+      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+      head(c, cx,cy, bx,by, scale);
     }
     else if(s.tool==='curve'){
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const mx=(ax+bx)/2, my=(ay+by)/2;
       const dx=bx-ax, dy=by-ay, fb=curveBow(s);
       const cx=mx-dy*fb, cy=my+dx*fb;
-      const d=s.depth||0;
-      if(d){                       /* 3D plane: taper the ribbon + scale the head */
-        const wS=Math.max(1.2, lw*(1+0.3*d)), wE=Math.max(1.2, lw*(1-0.6*d));
-        taperedCurve(c, ax,ay, cx,cy, bx,by, wS, wE);
-        head(c,cx,cy,bx,by, scale*Math.max(0.5,Math.min(1.4, wE/lw)));
-      } else {
-        c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
-        head(c,cx,cy,bx,by,scale);
-      }
+      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+      head(c,cx,cy,bx,by,scale);
     }
     else if(s.tool==='disc'){
       const r=13*scale;
@@ -2798,6 +2788,80 @@ function head(c,x1,y1,x2,y2,scale){
 function hexA(hex,a){
   const n=parseInt(hex.slice(1),16);
   return `rgba(${n>>16&255},${n>>8&255},${n&255},${a})`;
+}
+/* multiply a hex colour's brightness by f (f>1 lightens toward white, f<1 darkens) */
+function shadeHex(hex,f){
+  const n=parseInt(hex.slice(1),16), cl=v=>Math.max(0,Math.min(255,Math.round(v*f)));
+  return `rgb(${cl(n>>16&255)},${cl(n>>8&255)},${cl(n&255)})`;
+}
+/* fill a ribbon down a centre polyline with per-vertex half-width (for tapered arrows) */
+function fillRibbon(c, pts, hw){
+  if(pts.length<2) return;
+  const Lp=[], Rp=[];
+  for(let i=0;i<pts.length;i++){
+    const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
+    let tx=b[0]-a[0], ty=b[1]-a[1]; const tl=Math.hypot(tx,ty)||1, nx=-ty/tl, ny=tx/tl;
+    Lp.push([pts[i][0]+nx*hw[i], pts[i][1]+ny*hw[i]]);
+    Rp.push([pts[i][0]-nx*hw[i], pts[i][1]-ny*hw[i]]);
+  }
+  c.beginPath(); c.moveTo(Lp[0][0],Lp[0][1]);
+  for(let i=1;i<Lp.length;i++) c.lineTo(Lp[i][0],Lp[i][1]);
+  for(let i=Rp.length-1;i>=0;i--) c.lineTo(Rp[i][0],Rp[i][1]);
+  c.closePath(); c.fill();
+}
+/* the centre path (px) of an arrow, tail→tip: straight, or the same quadratic the
+   Curve / Over-the-top tools use */
+function planePath(s, ax,ay,bx,by, scale, N){
+  const pts=[], dx=bx-ax, dy=by-ay;
+  if(s.tool==='curve'){
+    const mx=(ax+bx)/2,my=(ay+by)/2,fb=curveBow(s), cx=mx-dy*fb, cy=my+dx*fb;
+    for(let i=0;i<=N;i++){ const t=i/N,u=1-t; pts.push([u*u*ax+2*u*t*cx+t*t*bx, u*u*ay+2*u*t*cy+t*t*by]); }
+  } else if(s.tool==='lob'){
+    const L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55,120*scale), sgn=(ny>0?-1:1)*(s.flip?-1:1);
+    const mx=(ax+bx)/2,my=(ay+by)/2, cx=mx+nx*bow*sgn, cy=my+ny*bow*sgn;
+    for(let i=0;i<=N;i++){ const t=i/N,u=1-t; pts.push([u*u*ax+2*u*t*cx+t*t*bx, u*u*ay+2*u*t*cy+t*t*by]); }
+  } else {
+    for(let i=0;i<=N;i++){ const t=i/N; pts.push([ax+dx*t, ay+dy*t]); }
+  }
+  return pts;
+}
+/* Draw a "planed" 3D arrow. Depth comes from the arrow's ANGLE: its vertical
+   component (dyN) — tip lower on screen = coming toward camera (grow), tip higher
+   = going away (shrink), horizontal = no change. Thickness, arrowhead and shading
+   all scale with it. Returns true if it drew. */
+function drawPlanedArrow(c, s, W, H, scale, lw, col){
+  const st = (s.plane===true?1:(+s.plane||0)); if(!st) return false;
+  const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+  const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1, dyN=dy/L;   // -1..1, +down(near) / -up(far)
+  const K=0.72*st, KS=0.42*st;
+  const headScale=Math.max(0.4, Math.min(1.9, 1 + K*dyN));
+  const tipShade =Math.max(.6, Math.min(1.45, 1 + KS*dyN));
+  const tailShade=Math.max(.6, Math.min(1.45, 1 - KS*dyN));
+  const N=(s.tool==='curve'||s.tool==='lob')?24:12;
+  const pts=planePath(s, ax,ay,bx,by, scale, N);
+  const wf=i=>Math.max(0.35, lw*(1 + K*dyN*(2*(i/N)-1)));       // width factor tail→tip
+  const grad=c.createLinearGradient(ax,ay,bx,by);
+  grad.addColorStop(0, shadeHex(col,tailShade)); grad.addColorStop(1, shadeHex(col,tipShade));
+  c.fillStyle=grad;
+
+  if(s.tool==='arrow'){                 /* Run: twin rails that spread/converge with depth */
+    for(const rail of [1,-1]){
+      const off=i=>2.7*scale*Math.max(0.45, 1 + K*dyN*(2*(i/N)-1));
+      const cp=pts.map((p,i)=>{ const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
+        let tx=b[0]-a[0], ty=b[1]-a[1]; const tl=Math.hypot(tx,ty)||1, nx=-ty/tl, ny=tx/tl;
+        return [p[0]+nx*off(i)*rail, p[1]+ny*off(i)*rail]; });
+      fillRibbon(c, cp, pts.map((p,i)=>Math.max(0.35, wf(i)*0.42)/2));
+    }
+  } else if(s.tool==='option'){         /* Option: dotted, dots grow/shrink with depth */
+    const every=Math.max(1, Math.round(N/9));
+    for(let i=0;i<=N;i+=every){ c.beginPath(); c.arc(pts[i][0],pts[i][1], Math.max(0.8, wf(i)*0.6), 0,7); c.fill(); }
+  } else {                              /* Pass / Curve / Over-the-top: solid tapered ribbon */
+    fillRibbon(c, pts, pts.map((p,i)=>wf(i)/2));
+  }
+  const tip=pts[pts.length-1], prev=pts[pts.length-2]||[ax,ay];
+  c.fillStyle=shadeHex(col,tipShade);
+  head(c, prev[0],prev[1], tip[0],tip[1], scale*headScale);
+  return true;
 }
 
 /* ============================================================
