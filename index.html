@@ -453,7 +453,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
     <div class="stage">
       <div class="canvaswrap">
         <div id="vidbox" style="display:none">
-          <video id="vid" playsinline></video>
+          <video id="vid" playsinline muted></video>
           <canvas id="draw"></canvas>
         </div>
         <div id="rec"><i></i><span>Recording clip — leave this tab open</span></div>
@@ -503,7 +503,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
           <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Freeze</button>
           <button class="tbtn" id="changevid">Change video</button>
-          <button class="tbtn" id="mutebtn" aria-pressed="false" title="Mute while watching">Mute</button>
+          <button class="tbtn" id="mutebtn" aria-pressed="true" title="Mute while watching">Muted</button>
         </div>
         <div class="tagbar" id="tagbar">
           <span class="eyebrow" style="flex:none">Tag as you watch</span>
@@ -2161,12 +2161,16 @@ async function trackRing(s){
      BODY/JERSEY, sampled above the ring, and derive the feet from it. */
   let fx=Math.round(s.kf[0].x*WW), fy=Math.round(s.kf[0].y*WH);
   const HS=Math.round(Math.min(Math.max((s.r||0.06)*WW,14),34));   // jersey patch half-size
-  const bodyOff=Math.round(HS*3);                                  // torso sits ~this far above the feet
+  const bodyOff=Math.round(HS*2);                                  // torso sits ~this far above the feet
   let tx=fx, ty=fy-bodyOff;                                        // tracked point = jersey/torso
   const d0=grab(); const TS=[];
   for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2) TS.push(px(d0,tx+i,ty+j));
   s.kf=[{t:startT, x:fx/WW, y:fy/WH}];
   const SR=Math.round(HS*1.6), step=0.1;                           // wider search per step
+  /* Prefer the smallest move that still matches. On an auto-follow camera the
+     player stays near the same place in frame while the background slides past,
+     so biasing toward "stay put" locks onto the player and rejects the pan. */
+  const motionK=TS.length*0.03;
   tracking=true; const wasExp=exporting; exporting=true; toast('Tracking player…');
   try{
     vid.playbackRate=1; await vid.play();
@@ -2175,23 +2179,27 @@ async function trackRing(s){
       const cb=()=>{
         if(!curClip || vid.paused || vid.currentTime>=endT || vid.ended){ res(); return; }
         if(vid.currentTime>=nextT){
-          const d=grab(); let best=Infinity, bx=tx, by=ty;
+          const d=grab(); let best=Infinity, bestSad=Infinity, bx=tx, by=ty;
           for(let dy=-SR;dy<=SR;dy+=2) for(let dx=-SR;dx<=SR;dx+=2){
             let sad=0,k=0;
             for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2){
               const p=px(d,tx+dx+i,ty+dy+j), t=TS[k++];
               sad+=Math.abs(p[0]-t[0])+Math.abs(p[1]-t[1])+Math.abs(p[2]-t[2]);
             }
-            if(sad<best){ best=sad; bx=tx+dx; by=ty+dy; }
+            const score=sad+motionK*(dx*dx+dy*dy);   // penalise big jumps
+            if(score<best){ best=score; bestSad=sad; bx=tx+dx; by=ty+dy; }
           }
           tx=bx; ty=by; fx=tx; fy=ty+bodyOff;
           s.kf.push({t:vid.currentTime, x:fx/WW, y:fy/WH}); nextT=vid.currentTime+step;
-          /* Slowly fold the new patch into the template so gradual turns/lighting
-             don't break the lock (keep 85% of the original appearance). */
-          let k2=0;
-          for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2){
-            const p=px(d,tx+i,ty+j), t=TS[k2];
-            TS[k2++]=[t[0]*0.85+p[0]*0.15, t[1]*0.85+p[1]*0.15, t[2]*0.85+p[2]*0.15];
+          /* Only fold the new patch into the template when the match is genuinely
+             good, so a bad frame can't bake the background into the template and
+             lose the player for good. */
+          if(bestSad/(TS.length*3) < 45){
+            let k2=0;
+            for(let j=-HS;j<=HS;j+=2) for(let i=-HS;i<=HS;i+=2){
+              const p=px(d,tx+i,ty+j), t=TS[k2];
+              TS[k2++]=[t[0]*0.9+p[0]*0.1, t[1]*0.9+p[1]*0.1, t[2]*0.9+p[2]*0.1];
+            }
           }
         }
         (vid.requestVideoFrameCallback?vid.requestVideoFrameCallback(cb):requestAnimationFrame(cb));
