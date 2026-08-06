@@ -175,6 +175,18 @@ button{cursor:pointer;border:none;background:none}
 #vidbox{position:relative;line-height:0;max-width:100%;max-height:100%;display:flex;min-height:0}
 #vid{max-width:100%;max-height:100%;width:auto;height:auto;display:block;background:#000;object-fit:contain}
 #draw{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+#draw.panning{cursor:grab}
+#draw.panning:active{cursor:grabbing}
+#draw.loupe-cursor{cursor:zoom-in}
+/* The magnifier loupe: a circular window holding a magnified duplicate of the
+   video (native <video>, so HEVC still shows) plus a scaled copy of the marks. */
+.loupe{position:absolute;border-radius:50%;overflow:hidden;pointer-events:none;
+  box-shadow:0 4px 18px rgba(0,0,0,.55),0 0 0 3px rgba(255,255,255,.9),0 0 0 5px rgba(6,12,9,.7);
+  z-index:6;display:none;background:#000}
+.loupe.on{display:block}
+.loupe video,.loupe canvas{position:absolute;left:0;top:0;max-width:none}
+.loupe .xhair{position:absolute;left:50%;top:50%;width:14px;height:14px;transform:translate(-50%,-50%);
+  border:1px solid rgba(255,255,255,.7);border-radius:50%;pointer-events:none}
 #dropzone{
   position:absolute;inset:10px;border:1px dashed var(--line);border-radius:var(--r);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;
@@ -505,6 +517,11 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="changevid">Change video</button>
           <button class="tbtn" id="mutebtn" aria-pressed="true" title="Mute while watching">Muted</button>
           <button class="tbtn" id="marksbtn" aria-pressed="true" title="Show or hide all markups while watching — hiding never deletes them">Marks on</button>
+          <button class="tbtn" id="zoomout" title="Zoom the whole picture out">Zoom −</button>
+          <button class="tbtn" id="zoomlvl" title="Current zoom — click to reset to 100%">100%</button>
+          <button class="tbtn" id="zoomin" title="Zoom the whole picture in">Zoom +</button>
+          <button class="tbtn" id="panbtn" aria-pressed="false" title="When zoomed in, drag the picture to pan around">✋ Pan</button>
+          <button class="tbtn" id="loupebtn" aria-pressed="false" title="Magnifying glass — move it over the video to enlarge that spot">🔍 Loupe</button>
         </div>
         <div class="tagbar" id="tagbar">
           <span class="eyebrow" style="flex:none">Tag as you watch</span>
@@ -526,6 +543,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
     <div class="col">
       <div class="colhead"><span class="eyebrow">Markup</span>
         <button class="tbtn" id="trackbtn" title="Auto-follow the player under the selected Ground ring">Track</button>
+        <button class="tbtn" id="flipbtn" title="Flip a selected curved or over-the-top arrow to bow the other way">⤢ Flip</button>
         <button class="tbtn" id="undomarks">Undo</button>
         <button class="tbtn" id="clearbtn">Clear</button>
       </div>
@@ -1663,6 +1681,105 @@ $('#marksbtn').addEventListener('click',()=>{
   $('#marksbtn').textContent = marksHidden ? 'Marks off' : 'Marks on';
   render();
 });
+
+/* ======================= Zoom & magnifier ============================
+   Two ways to look closer, both codec-safe (they scale the real <video>
+   element, never a canvas readback, so H.265 footage still shows):
+   • Whole-screen zoom — CSS-scale #vidbox (video + marks together) and pan.
+   • Loupe — a circular magnified duplicate video that follows the pointer. */
+let viewZoom=1, viewPanX=0, viewPanY=0, panMode=false, panning=null;
+function applyViewTransform(){
+  const box=$('#vidbox');
+  if(viewZoom<=1.001){ viewZoom=1; viewPanX=viewPanY=0; box.style.transform='none'; }
+  else { box.style.transformOrigin='center center';
+    box.style.transform=`translate(${viewPanX}px,${viewPanY}px) scale(${viewZoom})`; }
+  const lvl=$('#zoomlvl'); if(lvl) lvl.textContent=Math.round(viewZoom*100)+'%';
+  const pb=$('#panbtn'); if(pb && viewZoom===1 && panMode){ panMode=false; pb.setAttribute('aria-pressed','false'); draw.classList.remove('panning'); }
+}
+function clampPan(){
+  const w=document.querySelector('.canvaswrap').getBoundingClientRect();
+  const mx=(viewZoom-1)*w.width/2, my=(viewZoom-1)*w.height/2;
+  viewPanX=Math.max(-mx,Math.min(mx,viewPanX));
+  viewPanY=Math.max(-my,Math.min(my,viewPanY));
+}
+function setZoom(z, sx, sy){
+  const prev=viewZoom, next=Math.max(1,Math.min(4, Math.round(z*100)/100));
+  if(next===prev) return;
+  const w=document.querySelector('.canvaswrap').getBoundingClientRect();
+  const fx=(sx==null?0:sx-(w.left+w.width/2)), fy=(sy==null?0:sy-(w.top+w.height/2));
+  const r=next/prev;                       /* keep the focal point fixed while zooming */
+  viewZoom=next;
+  viewPanX=fx-r*(fx-viewPanX); viewPanY=fy-r*(fy-viewPanY);
+  clampPan(); applyViewTransform();
+}
+$('#zoomin').addEventListener('click',()=>setZoom(viewZoom+0.25));
+$('#zoomout').addEventListener('click',()=>setZoom(viewZoom-0.25));
+$('#zoomlvl').addEventListener('click',()=>setZoom(1));
+$('#panbtn').addEventListener('click',()=>{
+  panMode=!panMode;
+  if(panMode && viewZoom===1) setZoom(2);        /* nothing to pan at 100% — zoom in first */
+  $('#panbtn').setAttribute('aria-pressed', panMode);
+  draw.classList.toggle('panning', panMode);
+});
+/* wheel over the picture zooms toward the cursor */
+document.querySelector('.canvaswrap').addEventListener('wheel', e=>{
+  if(!vid.src) return;
+  e.preventDefault();
+  setZoom(viewZoom * (e.deltaY<0 ? 1.12 : 1/1.12), e.clientX, e.clientY);
+}, {passive:false});
+
+/* ---- Loupe ---- */
+let loupeOn=false, loupePt=null, loupeVid=null, loupeCv=null, loupeBox=null;
+const LOUPE_R=92, LOUPE_MAG=2.6;
+function ensureLoupe(){
+  if(loupeBox) return;
+  const wrap=document.querySelector('.canvaswrap');
+  loupeBox=document.createElement('div'); loupeBox.className='loupe';
+  loupeBox.style.width=loupeBox.style.height=(LOUPE_R*2)+'px';
+  loupeVid=document.createElement('video'); loupeVid.muted=true; loupeVid.playsInline=true; loupeVid.preload='auto';
+  loupeCv=document.createElement('canvas'); loupeCv.width=draw.width; loupeCv.height=draw.height;
+  const xh=document.createElement('div'); xh.className='xhair';
+  loupeBox.append(loupeVid, loupeCv, xh);
+  wrap.appendChild(loupeBox);
+}
+function moveLoupe(e){ loupePt={x:e.clientX, y:e.clientY}; refreshLoupe(); }
+function refreshLoupe(){
+  if(!loupeOn || !loupePt || !loupeBox) return;
+  const wrap=document.querySelector('.canvaswrap').getBoundingClientRect();
+  const vr=vid.getBoundingClientRect();
+  if(!vr.width){ loupeBox.classList.remove('on'); return; }
+  /* keep the duplicate on the same frame as the main video */
+  if(loupeVid.src!==(vid.currentSrc||vid.src)) loupeVid.src=vid.currentSrc||vid.src;
+  if(loupeVid.readyState>=1){
+    if(vid.paused){ if(!loupeVid.paused) loupeVid.pause();
+      if(Math.abs(loupeVid.currentTime-vid.currentTime)>0.02) loupeVid.currentTime=vid.currentTime; }
+    else { loupeVid.playbackRate=vid.playbackRate;
+      if(loupeVid.paused) loupeVid.play().catch(()=>{});
+      if(Math.abs(loupeVid.currentTime-vid.currentTime)>0.16) loupeVid.currentTime=vid.currentTime; }
+  }
+  /* position the circular window at the pointer (clamped to the video area) */
+  const cx=Math.max(vr.left,Math.min(vr.right, loupePt.x));
+  const cy=Math.max(vr.top ,Math.min(vr.bottom,loupePt.y));
+  loupeBox.style.left=(cx-wrap.left-LOUPE_R)+'px';
+  loupeBox.style.top =(cy-wrap.top -LOUPE_R)+'px';
+  /* magnified layers, offset so the point under the glass sits at its centre */
+  const vw=vr.width*LOUPE_MAG, vh=vr.height*LOUPE_MAG;
+  const u=(cx-vr.left)/vr.width, v=(cy-vr.top)/vr.height;
+  const ox=LOUPE_R-u*vw, oy=LOUPE_R-v*vh;
+  for(const el of [loupeVid, loupeCv]){ el.style.width=vw+'px'; el.style.height=vh+'px'; el.style.left=ox+'px'; el.style.top=oy+'px'; }
+  /* copy the freshly painted marks (vector canvas → no HEVC taint) */
+  const lx=loupeCv.getContext('2d'); lx.clearRect(0,0,loupeCv.width,loupeCv.height);
+  if(!marksHidden){ try{ lx.drawImage(draw,0,0,loupeCv.width,loupeCv.height); }catch(_){} }
+  loupeBox.classList.add('on');
+}
+$('#loupebtn').addEventListener('click',()=>{
+  loupeOn=!loupeOn;
+  $('#loupebtn').setAttribute('aria-pressed', loupeOn);
+  if(loupeOn){ ensureLoupe(); draw.classList.add('loupe-cursor');
+    const vr=vid.getBoundingClientRect(); loupePt={x:vr.left+vr.width/2, y:vr.top+vr.height/2}; refreshLoupe(); }
+  else { draw.classList.remove('loupe-cursor'); if(loupeBox){ loupeBox.classList.remove('on'); } if(loupeVid){ try{loupeVid.pause();}catch(_){} } }
+});
+
 /* ---------- phone panel switch ---------- */
 function setPanel(p){
   document.body.classList.remove('panel-clips','panel-markup');
@@ -1807,6 +1924,8 @@ const TOOLS = [
   {id:'pass',  name:'Pass',      key:'',  icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
   {id:'lob',   name:'Over top',  key:'',  icon:'<path d="M3 19Q11 3 21 9"/><path d="M14 6h7v7"/>'},
   {id:'option',name:'Option',    key:'4', icon:'<path d="M3 18L21 6" stroke-dasharray="1.5 3"/><path d="M14 6h7v7"/>'},
+  {id:'line',  name:'Line',      key:'',  icon:'<path d="M4 20L20 4"/>'},
+  {id:'chain', name:'Connect',   key:'',  icon:'<path d="M3 18L9 8l6 6 6-10"/><circle cx="3" cy="18" r="1.7" fill="currentColor" stroke="none"/><circle cx="9" cy="8" r="1.7" fill="currentColor" stroke="none"/><circle cx="15" cy="14" r="1.7" fill="currentColor" stroke="none"/><circle cx="21" cy="4" r="1.7" fill="currentColor" stroke="none"/>'},
   {id:'curve', name:'Curve',     key:'5', icon:'<path d="M3 19C7 6 16 4 21 6"/><path d="M15 3l6 3-3 6"/>'},
   {id:'zone',  name:'Space',     key:'6', icon:'<path d="M4 8h16v8H4z"/><path d="M4 12h16" stroke-dasharray="3 3"/>'},
   {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
@@ -1823,7 +1942,7 @@ function renderTools(){
     b.className='tool'; b.setAttribute('aria-pressed', t.id===tool); b.title=t.name+(t.key?'  ('+t.key+')':'');
     b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
       stroke-linecap="round" stroke-linejoin="round">${t.icon}</svg><span>${t.name}</span>`;
-    b.addEventListener('click',()=>{ tool = (tool===t.id ? null : t.id); renderTools(); });
+    b.addEventListener('click',()=>{ cancelChain(false); tool = (tool===t.id ? null : t.id); renderTools(); });
     g.appendChild(b);
   });
   const sw=$('#swatches'); sw.innerHTML='';
@@ -1839,6 +1958,17 @@ function renderTools(){
 
 /* shapes stored in normalised 0..1 coords so they survive resize + export */
 let dragging=null, moving=null, selection=[], marquee=null, clipboard=[], editingShape=null, finishTextEdit=null;
+/* Connect tool: an in-progress multi-point line (click points, double-click to
+   finish) for linking players into a shape/formation. */
+let chaining=null, chainCursor=null;
+function cancelChain(commitIt){
+  if(!chaining) return;
+  if(commitIt && chaining.pts.length>=2){
+    const s={tool:'chain', color:chaining.color, pts:chaining.pts.slice(), t:beatSnap()};
+    curClip.shapes.push(s); selection=[s]; commit();
+  }
+  chaining=null; chainCursor=null; render();
+}
 const isSel = s => selection.includes(s);
 function shapeBBox(s){
   if(s.tool==='ground'){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a; if(!ctr) return null;
@@ -1853,6 +1983,8 @@ function pt(e){
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
 }
 draw.addEventListener('pointerdown', e=>{
+  if(panMode){ panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return; }
+  if(loupeOn){ draw.setPointerCapture(e.pointerId); moveLoupe(e); return; }
   if(!curClip) return toast('Pick a clip first');
   /* an open inline text box commits on any click elsewhere (a canvas can't blur
      itself, so we close it here) and that click is consumed */
@@ -1876,11 +2008,19 @@ draw.addEventListener('pointerdown', e=>{
   if(tool==='disc'){ createMarkerInline(p); return; }
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
+  if(tool==='chain'){                              /* click a point, keep clicking, double-click to finish */
+    if(!chaining) chaining={tool:'chain',color,pts:[p]}; else chaining.pts.push(p);
+    chainCursor=p; render(); return;
+  }
   dragging={tool,color,a:p,b:p};
   if(tool==='wedge') dragging.c={x:p.x,y:p.y};   /* free triangle: apex + two base corners */
 });
 draw.addEventListener('pointermove', e=>{
+  if(panning){ viewPanX+=e.clientX-panning.x; viewPanY+=e.clientY-panning.y;
+    panning={x:e.clientX,y:e.clientY}; clampPan(); applyViewTransform(); return; }
+  if(loupeOn){ moveLoupe(e); return; }
   const p=pt(e);
+  if(chaining){ chainCursor=p; render(); return; }  /* rubber-band to the next point */
   if(marquee){ marquee.b=p; render(); return; }
   if(moving){ applyMove(p); return; }
   if(dragging){
@@ -1893,6 +2033,8 @@ draw.addEventListener('pointermove', e=>{
   if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
 });
 draw.addEventListener('pointerup', ()=>{
+  if(panning){ panning=null; return; }
+  if(loupeOn){ return; }
   if(marquee){ const box=marquee; marquee=null; selectInBox(box); render(); return; }
   if(moving){ const m=moving; moving=null;
     if(m.mode==='gmove'){ const s=m.gs; if(m.moved && s._live){ upsertKf(s, vid.currentTime, s._live.x, s._live.y); toast('Follow point '+s.kf.length+' set — the ring glides between points'); } delete s._live; m.moved?commit():render(); return; }
@@ -1911,6 +2053,14 @@ draw.addEventListener('pointerup', ()=>{
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
   if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit(); } else render();
+});
+/* double-click finishes the Connect line. The two clicks of the double-click each
+   added the end point, so drop the duplicate before committing. */
+draw.addEventListener('dblclick', e=>{
+  if(!chaining) return;
+  e.preventDefault();
+  if(chaining.pts.length>=2) chaining.pts.pop();
+  cancelChain(true);
 });
 /* pick the visible marks whose bounding box overlaps the marquee rectangle */
 function selectInBox(box){
@@ -2082,6 +2232,13 @@ function eraseAt(p){
 }
 $('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; selection=[]; commit(); }});
 $('#undomarks').addEventListener('click', undoMarkup);
+$('#flipbtn').addEventListener('click',()=>{
+  if(!curClip) return;
+  const targets=selection.filter(s=>s.tool==='curve'||s.tool==='lob');
+  if(!targets.length) return toast('Select a curved or over-the-top arrow first, then Flip');
+  targets.forEach(s=>{ if(s.bow!=null) s.bow=-s.bow; else s.flip=!s.flip; });
+  commit();
+});
 $('#trackbtn').addEventListener('click',()=>{
   const ring = selection.find(s=>s.tool==='ground') || (curClip && curClip.shapes.filter(s=>s.tool==='ground').pop());
   if(!ring) return toast('Place a Ground ring on the player, then Track');
@@ -2109,8 +2266,8 @@ function curveDistPx(p,s){
   const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
   const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay;
   let cx,cy;
-  if(s.tool==='lob'){ const L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55,120*scale), sgn=ny>0?-1:1; cx=mx+nx*bow*sgn; cy=my+ny*bow*sgn; }
-  else { cx=mx-dy*0.26; cy=my+dx*0.26; }
+  if(s.tool==='lob'){ const L=Math.hypot(dx,dy)||1, nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55,120*scale), sgn=(ny>0?-1:1)*(s.flip?-1:1); cx=mx+nx*bow*sgn; cy=my+ny*bow*sgn; }
+  else { const fb=curveBow(s); cx=mx-dy*fb; cy=my+dx*fb; }
   const px=p.x*W, py=p.y*H; let min=1e9, prevx=ax, prevy=ay;
   for(let i=1;i<=16;i++){ const t=i/16, u=1-t;
     const qx=u*u*ax+2*u*t*cx+t*t*bx, qy=u*u*ay+2*u*t*cy+t*t*by;
@@ -2246,7 +2403,7 @@ function onBody(p,s,tb){
   }
   const scale=Math.max(1,draw.width/900), tolPx=Math.max(16, 10*scale);
   if(s.tool==='wedge'){ return s.b && s.c && pointInTri(p, s.a, s.b, s.c); }
-  if(s.tool==='pen'){
+  if(s.tool==='pen'||s.tool==='chain'){
     if(!s.pts) return false;
     for(let i=1;i<s.pts.length;i++) if(segDistPx(p,s.pts[i-1],s.pts[i])<tolPx) return true;
     return false;
@@ -2273,6 +2430,11 @@ function pickHandle(p){
     if(s.tool==='ground'){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
       if(ctr && s.r!=null && dist(p,{x:ctr.x+s.r,y:ctr.y})<te) return {s,mode:'gradius'};
       continue; }
+    if(s.tool==='curve'){   /* apex handle sets how tight the curve bows */
+      const W=draw.width,H=draw.height, ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
+      const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
+      if(dist(p,{x:(mx-dy*fb)/W, y:(my+dx*fb)/H})<te) return {s,mode:'curvebow'};
+    }
     if(s.c && dist(p,s.c)<te) return {s,mode:'c'};
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
@@ -2320,6 +2482,12 @@ function applyMove(p){
     else if(mode==='c') s.c={x:cl(o.c.x+dx),y:cl(o.c.y+dy)};
     else if(mode==='pstart'||mode==='pend'){ const idx=mode==='pstart'?0:o.pts.length-1;
       s.pts=o.pts.map((q,i)=> i===idx ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q}); }
+    else if(mode==='curvebow'){   /* drag the apex: bow = how far the curve pushes out, signed by side */
+      const W=draw.width,H=draw.height, ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
+      const mx=(ax+bx)/2,my=(ay+by)/2, ddx=bx-ax, ddy=by-ay, denom=(ddx*ddx+ddy*ddy)||1;
+      const px=p.x*W, py=p.y*H;
+      s.bow=Math.max(-1.5,Math.min(1.5, ((px-mx)*(-ddy)+(py-my)*ddx)/denom));
+    }
   }
   moving.moved=true; render();
 }
@@ -2339,6 +2507,10 @@ function drawHandles(s){
     }
     if(ctr){ dotPx(ctr.x*W, ctr.y*H); if(s.r!=null) dotPx((ctr.x+s.r)*W, ctr.y*H); }
   }
+  else if(s.tool==='curve'){ dot(s.a); dot(s.b);   /* + apex handle to set the tightness */
+    const ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
+    const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
+    dotPx(mx-dy*fb, my+dx*fb); }
   else if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
   else if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
   else { dot(s.a); if(s.b) dot(s.b); }
@@ -2354,7 +2526,11 @@ function render(){
   const hold = +$('#hold').value||0, now = vid.currentTime;
   const vis = s => shapeVisibleAt(s, now, hold, burnAll);
   const shapes = (!curClip || marksHidden) ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
-  paint(ctx, draw.width, draw.height, shapes, marksHidden?null:dragging);
+  /* live preview: the shape being dragged, or the Connect line in progress (with a
+     rubber-band segment out to the cursor) */
+  const chainPrev = chaining ? {tool:'chain', color:chaining.color,
+    pts: chainCursor ? chaining.pts.concat([chainCursor]) : chaining.pts} : null;
+  paint(ctx, draw.width, draw.height, shapes, marksHidden?null:(dragging||chainPrev));
   if(!marksHidden && curClip) selection.forEach(s=>{
     if(curClip.shapes.includes(s) && s!==editingShape && vis(s)) drawHandles(s);
   });
@@ -2365,6 +2541,7 @@ function render(){
     ctx.save(); ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1.4*scale; ctx.setLineDash([6*scale,4*scale]);
     ctx.strokeRect(x,y,w,h); ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(x,y,w,h); ctx.restore();
   }
+  if(loupeOn && typeof refreshLoupe==='function') refreshLoupe();
 }
 
 function loopRender(){
@@ -2455,6 +2632,18 @@ function paint(c, W, H, shapes, extra){
       s.pts.forEach((p,i)=> i? c.lineTo(p.x*W,p.y*H) : c.moveTo(p.x*W,p.y*H));
       c.stroke();
     }
+    else if(s.tool==='line'){   /* plain straight line, no arrowhead */
+      line(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H);
+    }
+    else if(s.tool==='chain'){  /* Connect: multi-point line linking players, node dot at each */
+      if(s.pts&&s.pts.length){
+        c.beginPath();
+        s.pts.forEach((p,i)=> i? c.lineTo(p.x*W,p.y*H) : c.moveTo(p.x*W,p.y*H));
+        c.stroke();
+        c.shadowBlur=0; const r=4.2*scale;
+        s.pts.forEach(p=>{ c.beginPath(); c.arc(p.x*W,p.y*H,r,0,7); c.fill(); });
+      }
+    }
     else if(s.tool==='arrow'){   /* Run: twin parallel lines + arrowhead */
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1, o=2.6*scale;
@@ -2474,7 +2663,7 @@ function paint(c, W, H, shapes, extra){
     else if(s.tool==='lob'){    /* Over the top: solid lofted arc + arrowhead */
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1;
-      const nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55, 120*scale), sgn=ny>0?-1:1;
+      const nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55, 120*scale), sgn=(ny>0?-1:1)*(s.flip?-1:1);
       const cx=mx+nx*bow*sgn, cy=my+ny*bow*sgn;
       c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
       head(c, cx,cy, bx,by, scale);
@@ -2482,8 +2671,8 @@ function paint(c, W, H, shapes, extra){
     else if(s.tool==='curve'){
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const mx=(ax+bx)/2, my=(ay+by)/2;
-      const dx=bx-ax, dy=by-ay;
-      const cx=mx-dy*0.26, cy=my+dx*0.26;
+      const dx=bx-ax, dy=by-ay, fb=curveBow(s);
+      const cx=mx-dy*fb, cy=my+dx*fb;
       c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
       head(c,cx,cy,bx,by,scale);
     }
@@ -2509,6 +2698,9 @@ function paint(c, W, H, shapes, extra){
     c.restore();
   });
 }
+/* signed curvature of a Curve arrow: a dragged apex overrides the default bow,
+   and its sign carries the direction (so it also subsumes Flip). */
+function curveBow(s){ return s.bow!=null ? s.bow : 0.26*(s.flip?-1:1); }
 function line(c,x1,y1,x2,y2){ c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
 function head(c,x1,y1,x2,y2,scale){
   const a=Math.atan2(y2-y1,x2-x1), L=15*scale;
@@ -3071,6 +3263,8 @@ document.addEventListener('keydown',e=>{
   if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if(!$('#studio').classList.contains('on')) return;
   const mod = e.metaKey||e.ctrlKey;
+  if(e.key==='Escape' && chaining){ e.preventDefault(); cancelChain(false); return; }
+  if(e.key==='Enter' && chaining){ e.preventDefault(); cancelChain(true); return; }
   if(mod && e.key==='z'){ e.preventDefault(); undoMarkup(); return; }
   /* select-all (visible marks) / copy / cut / paste — PowerPoint-style */
   if(mod && e.key==='a' && curClip){
