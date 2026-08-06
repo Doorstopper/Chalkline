@@ -2084,7 +2084,11 @@ draw.addEventListener('pointerdown', e=>{
     beginMove(p, hit); render(); return;
   }
   if(!e.shiftKey && selection.length){ selection=[]; render(); }
-  if(!tool){ marquee={a:p,b:p,add:e.shiftKey}; return; } /* no tool: drag a selection box */
+  if(!tool){
+    /* zoomed in with no tool: grab the frame and drag to pan to an off-centre play */
+    if(viewZoom>1){ panning={x:e.clientX,y:e.clientY}; return; }
+    marquee={a:p,b:p,add:e.shiftKey}; return;   /* otherwise drag a selection box */
+  }
   if(tool==='disc'){ createMarkerInline(p); return; }
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'){ dragging={tool:'pen',color,pts:[p]}; return; }
@@ -2110,7 +2114,7 @@ draw.addEventListener('pointermove', e=>{
     render(); return;
   }
   /* idle hover: show a move cursor over anything grabbable */
-  if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
+  if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : (viewZoom>1 ? 'grab' : 'default'));
 });
 draw.addEventListener('pointerup', ()=>{
   if(panning){ panning=null; return; }
