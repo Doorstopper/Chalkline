@@ -486,6 +486,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="tbar">
           <button class="tbtn" id="playbtn">Play</button>
           <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
+          <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
           <button class="tbtn" data-skip="-20" title="Back 20 seconds">« 20s</button>
           <button class="tbtn" data-skip="-10" title="Back 10 seconds">« 10s</button>
           <button class="tbtn" data-skip="-5"  title="Back 5 seconds">« 5s</button>
@@ -1632,6 +1633,15 @@ $('#restartbtn').addEventListener('click',()=>{
   vid.currentTime = clipStart(curClip);
   loopArmed = true; render();
 });
+/* jump straight to the markup points (cycling), paused, so you can edit them */
+$('#tomarksbtn').addEventListener('click',()=>{
+  if(!curClip) return;
+  const ts=[...new Set(curClip.shapes.map(s=>s.t).filter(t=>t!=null))].sort((a,b)=>a-b);
+  if(!ts.length) return toast('No markup on this clip yet');
+  const next=ts.find(t=>t>vid.currentTime+0.05);
+  clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
+  vid.pause(); vid.currentTime = (next!=null?next:ts[0]); render();
+});
 $('#freezebtn').addEventListener('click',()=>{
   autoFreeze=!autoFreeze; $('#freezebtn').setAttribute('aria-pressed', autoFreeze);
   if(!autoFreeze){ clearTimeout(liveHoldT); liveFrozeSet.clear(); }
@@ -1729,7 +1739,7 @@ function updateTC(){
     const h=+$('#hold').value||0;
     if(h>0){
       const now=vid.currentTime; let hit=null;
-      for(const s of curClip.shapes){ const t=s.t; if(t==null) continue;
+      for(const s of curClip.shapes){ const t=s.t; if(t==null||s.tool==='ground') continue;
         if(now>=t && now<t+0.6 && !liveFrozeSet.has(Math.round(t*10)) && (hit==null||t<hit)) hit=t; }
       if(hit!=null){ liveFrozeSet.add(Math.round(hit*10)); vid.pause();
         clearTimeout(liveHoldT);
@@ -1779,6 +1789,7 @@ $('#rail').addEventListener('click',e=>{
 const TOOLS = [
   {id:'spot',  name:'Spotlight', key:'1', icon:'<circle cx="12" cy="12" r="5"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>'},
   {id:'circle',name:'Circle',    key:'2', icon:'<ellipse cx="12" cy="12" rx="9" ry="6"/>'},
+  {id:'ground',name:'Ground',    key:'',  icon:'<ellipse cx="12" cy="15" rx="9" ry="3.5"/><circle cx="12" cy="8.5" r="2.5"/>'},
   {id:'arrow', name:'Run',       key:'3', icon:'<path d="M3 16L18 7"/><path d="M6 21L21 12"/><path d="M14 6h7v7"/>'},
   {id:'pass',  name:'Pass',      key:'',  icon:'<path d="M3 18L21 6"/><path d="M14 6h7v7"/>'},
   {id:'lob',   name:'Over top',  key:'',  icon:'<path d="M3 19Q11 3 21 9"/><path d="M14 6h7v7"/>'},
@@ -1817,6 +1828,8 @@ function renderTools(){
 let dragging=null, moving=null, selection=[], marquee=null, clipboard=[], editingShape=null, finishTextEdit=null;
 const isSel = s => selection.includes(s);
 function shapeBBox(s){
+  if(s.tool==='ground'){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a; if(!ctr) return null;
+    const rx=s.r||0.05, ry=rx*0.42; return {x0:ctr.x-rx,y0:ctr.y-ry,x1:ctr.x+rx,y1:ctr.y+ry}; }
   const pts=[]; if(s.pts) pts.push(...s.pts); ['a','b','c'].forEach(k=>{ if(s[k]) pts.push(s[k]); });
   if(!pts.length) return null;
   const xs=pts.map(q=>q.x), ys=pts.map(q=>q.y);
@@ -1868,9 +1881,18 @@ draw.addEventListener('pointermove', e=>{
 });
 draw.addEventListener('pointerup', ()=>{
   if(marquee){ const box=marquee; marquee=null; selectInBox(box); render(); return; }
-  if(moving){ const m=moving; moving=null; if(m.moved){ commit(); } else render(); return; }
+  if(moving){ const m=moving; moving=null;
+    if(m.mode==='gmove'){ const s=m.gs; if(m.moved && s._live) upsertKf(s, vid.currentTime, s._live.x, s._live.y); delete s._live; m.moved?commit():render(); return; }
+    if(m.moved){ commit(); } else render(); return; }
   if(!dragging) return;
   const d=dragging; dragging=null;
+  if(d.tool==='ground'){   /* place the ring with its first follow keyframe */
+    const rpx=Math.hypot((d.b.x-d.a.x)*draw.width,(d.b.y-d.a.y)*draw.height);
+    if(rpx>=8){ curClip.shapes.push({tool:'ground', color:d.color, r:Math.max(0.02, rpx/draw.width),
+      kf:[{t:vid.currentTime, x:d.a.x, y:d.a.y}], t:vid.currentTime}); selection=[curClip.shapes[curClip.shapes.length-1]]; commit(); }
+    else render();
+    return;
+  }
   const tiny = d.tool==='pen' ? d.pts.length<3
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
@@ -1883,8 +1905,7 @@ function selectInBox(box){
   const y0=Math.min(box.a.y,box.b.y), y1=Math.max(box.a.y,box.b.y);
   const hold=+$('#hold').value||0, now=vid.currentTime, burnAll=$('#burnmode') && $('#burnmode').value==='all';
   const hit=curClip.shapes.filter(s=>{
-    const vis = burnAll || (s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1));
-    if(!vis) return false;
+    if(!shapeVisibleAt(s,now,hold,burnAll)) return false;
     const bb=shapeBBox(s); if(!bb) return false;
     return bb.x1>=x0 && bb.x0<=x1 && bb.y1>=y0 && bb.y0<=y1;
   });
@@ -1919,7 +1940,7 @@ function beatSnap(){
   if(curClip) for(const s of curClip.shapes){ if(s.t!=null && Math.abs(s.t-now)<0.4) return s.t; }
   return now;
 }
-function beatTimes(m){ return [...new Set((m.shapes||[]).map(s=>s.t).filter(t=>t!=null))].sort((a,b)=>a-b); }
+function beatTimes(m){ return [...new Set((m.shapes||[]).filter(s=>s.tool!=='ground'&&s.t!=null).map(s=>s.t))].sort((a,b)=>a-b); }
 /* older clips stored one freezeAt for the whole mark — give each shape a beat time */
 function migrateMark(m){
   const dflt = (m.freezeAt!=null) ? m.freezeAt : m.t;
@@ -2082,9 +2103,39 @@ function pointInTri(p,a,b,c){
   const d3=(p.x-a.x)*(c.y-a.y)-(c.x-a.x)*(p.y-a.y);
   return !(((d1<0)||(d2<0)||(d3<0)) && ((d1>0)||(d2>0)||(d3>0)));
 }
+/* ---------- ground ring: a flat ellipse under a player, with position keyframes
+   so it follows them across the clip ---------- */
+function groundCenter(s, time){
+  if(s._live) return s._live;                 /* preview while dragging */
+  const kf=s.kf; if(!kf||!kf.length) return {x:0.5,y:0.5};
+  if(time<=kf[0].t) return {x:kf[0].x,y:kf[0].y};
+  const last=kf[kf.length-1]; if(time>=last.t) return {x:last.x,y:last.y};
+  for(let i=1;i<kf.length;i++){ if(time<=kf[i].t){ const a=kf[i-1],b=kf[i],f=(time-a.t)/((b.t-a.t)||1);
+    return {x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f}; } }
+  return {x:last.x,y:last.y};
+}
+function upsertKf(s, time, x, y){
+  s.kf=s.kf||[];
+  const i=s.kf.findIndex(k=>Math.abs(k.t-time)<0.2);
+  if(i>=0) s.kf[i]={t:time,x,y}; else s.kf.push({t:time,x,y});
+  s.kf.sort((a,b)=>a.t-b.t); s.t=s.kf[0].t;
+}
+/* is a shape visible at video time t (per-beat window, or a ground ring's span) */
+function shapeVisibleAt(s,t,hold,burnAll){
+  if(burnAll) return true;
+  if(s.tool==='ground'&&s.kf&&s.kf.length) return t>=s.kf[0].t-0.1 && t<=s.kf[s.kf.length-1].t+Math.max(hold,0.1);
+  return s.t!=null && t>=s.t-0.05 && t<=s.t+Math.max(hold,0.1);
+}
 /* is p on the body of shape s (for grabbing the whole thing) — generous band so
    you can click anywhere on a line/curve, not just dead on it */
 function onBody(p,s,tb){
+  if(s.tool==='ground'){
+    const W=draw.width,H=draw.height, ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
+    if(!ctr) return false;
+    const rx=(s.r!=null?s.r*W:Math.hypot((s.b.x-s.a.x)*W,(s.b.y-s.a.y)*H))||10, ry=rx*0.42;
+    const dx=(p.x-ctr.x)*W, dy=(p.y-ctr.y)*H;
+    return (dx*dx)/(rx*rx) + (dy*dy)/(ry*ry) <= 1.25;
+  }
   const scale=Math.max(1,draw.width/900), tolPx=Math.max(16, 10*scale);
   if(s.tool==='wedge'){ return s.b && s.c && pointInTri(p, s.a, s.b, s.c); }
   if(s.tool==='pen'){
@@ -2111,6 +2162,9 @@ function pickHandle(p){
   const te=0.03, tb=0.03, shapes=curClip.shapes;
   for(let i=shapes.length-1;i>=0;i--){
     const s=shapes[i];
+    if(s.tool==='ground'){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
+      if(ctr && s.r!=null && dist(p,{x:ctr.x+s.r,y:ctr.y})<te) return {s,mode:'gradius'};
+      continue; }
     if(s.c && dist(p,s.c)<te) return {s,mode:'c'};
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
@@ -2124,6 +2178,11 @@ function pickHandle(p){
 }
 function snapGeom(s){ return { s, a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, c:s.c?{...s.c}:null, pts:s.pts?s.pts.map(q=>({...q})):null }; }
 function beginMove(p, hit){
+  const s=hit.s;
+  if(s.tool==='ground'){   /* a ground ring: move sets a follow keyframe here; gradius resizes */
+    if(hit.mode==='gradius'){ moving={mode:'gradius', gs:s, start:p, moved:false}; return; }
+    moving={mode:'gmove', gs:s, start:p, moved:false, startCtr:groundCenter(s,vid.currentTime)}; return;
+  }
   /* a body grab moves the whole selection; a handle grab resizes just that mark */
   const targets = (hit.mode==='move' && isSel(hit.s)) ? selection : [hit.s];
   moving={ mode:hit.mode, start:p, moved:false, items:targets.map(snapGeom) };
@@ -2131,6 +2190,9 @@ function beginMove(p, hit){
 function applyMove(p){
   const cl=v=>Math.max(0,Math.min(1,v)), mode=moving.mode;
   let dx=p.x-moving.start.x, dy=p.y-moving.start.y;
+  if(mode==='gmove'){ const s=moving.gs; s._live={x:cl(moving.startCtr.x+dx),y:cl(moving.startCtr.y+dy)}; moving.moved=true; render(); return; }
+  if(mode==='gradius'){ const s=moving.gs, ctr=groundCenter(s,vid.currentTime);
+    s.r=Math.max(0.01, Math.hypot((p.x-ctr.x)*draw.width,(p.y-ctr.y)*draw.height)/draw.width); moving.moved=true; render(); return; }
   if(mode==='move'){
     const xs=[], ys=[];
     moving.items.forEach(o=>{ [o.a,o.b,o.c].forEach(q=>{ if(q){xs.push(q.x);ys.push(q.y);} });
@@ -2161,7 +2223,15 @@ function drawHandles(s){
   const dotPx=(x,y)=>{ ctx.beginPath(); ctx.arc(x,y,5.5*scale,0,7);
     ctx.fillStyle='rgba(255,255,255,.92)'; ctx.fill(); ctx.strokeStyle='rgba(6,12,9,.75)'; ctx.stroke(); };
   const dot=q=>{ if(q) dotPx(q.x*W,q.y*H); };
-  if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
+  if(s.tool==='ground'){
+    const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
+    if(s.kf&&s.kf.length>1){   /* faint dots marking the follow path */
+      ctx.fillStyle='rgba(255,255,255,.35)';
+      s.kf.forEach(k=>{ ctx.beginPath(); ctx.arc(k.x*W,k.y*H,3*scale,0,7); ctx.fill(); });
+    }
+    if(ctr){ dotPx(ctr.x*W, ctr.y*H); if(s.r!=null) dotPx((ctr.x+s.r)*W, ctr.y*H); }
+  }
+  else if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
   else if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
   else { dot(s.a); if(s.b) dot(s.b); }
   ctx.restore();
@@ -2174,11 +2244,11 @@ function render(){
      Whole-clip keeps everything on. */
   const burnAll = $('#burnmode') && $('#burnmode').value==='all';
   const hold = +$('#hold').value||0, now = vid.currentTime;
-  const inWin = s => s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1);
-  const shapes = !curClip ? [] : curClip.shapes.filter(s => s!==editingShape && (burnAll || inWin(s)));
+  const vis = s => shapeVisibleAt(s, now, hold, burnAll);
+  const shapes = !curClip ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
   paint(ctx, draw.width, draw.height, shapes, dragging);
   if(curClip) selection.forEach(s=>{
-    if(curClip.shapes.includes(s) && s!==editingShape && (burnAll || inWin(s))) drawHandles(s);
+    if(curClip.shapes.includes(s) && s!==editingShape && vis(s)) drawHandles(s);
   });
   if(marquee){
     const W=draw.width,H=draw.height,scale=Math.max(1,W/900);
@@ -2248,6 +2318,15 @@ function paint(c, W, H, shapes, extra){
       const cx=(s.a.x+s.b.x)/2*W, cy=(s.a.y+s.b.y)/2*H;
       const rx=Math.abs(s.b.x-s.a.x)/2*W, ry=Math.abs(s.b.y-s.a.y)/2*H;
       c.beginPath(); c.ellipse(cx,cy,Math.max(rx,6),Math.max(ry,6),0,0,7); c.stroke();
+    }
+    else if(s.tool==='ground'){   /* flat ring on the pitch under the player */
+      let cx,cy,rx;
+      if(s.kf&&s.kf.length){ const ctr=groundCenter(s,vid.currentTime); cx=ctr.x*W; cy=ctr.y*H; rx=(s.r||0.05)*W; }
+      else { cx=s.a.x*W; cy=s.a.y*H; rx=Math.hypot((s.b.x-s.a.x)*W,(s.b.y-s.a.y)*H); }
+      rx=Math.max(rx,8); const ry=rx*0.42;
+      c.shadowBlur=6*scale;
+      c.fillStyle=hexA(col,.18); c.beginPath(); c.ellipse(cx,cy,rx,ry,0,0,7); c.fill();
+      c.strokeStyle=col; c.lineWidth=lw*0.9; c.beginPath(); c.ellipse(cx,cy,rx,ry,0,0,7); c.stroke();
     }
     else if(s.tool==='wedge'){
       if(!s.b||!s.c){ c.restore(); return; }
@@ -2617,8 +2696,7 @@ async function exportClip(){
 
     /* each mark shows only inside its own freeze window, so the lead-in is clean,
        every freeze point lights up in turn, and Whole-clip shows everything */
-    const shapesAt=t=> burnAll ? curClip.shapes
-      : curClip.shapes.filter(s=> s.t!=null && t>=s.t-0.05 && t<=s.t+Math.max(hold,0.1));
+    const shapesAt=t=> curClip.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll));
     const frame=()=>{
       c.drawImage(vid,0,0,cv.width,cv.height);
       const sh=shapesAt(vid.currentTime);
@@ -2743,8 +2821,7 @@ async function compileReel(){
       status.textContent = `Recording ${i+1} of ${list.length} — ${m.label}`;
       const mStart=clipStart(m), mEnd=clipEnd(m);
 
-      const shapesAt=t=> burnAll ? m.shapes
-        : m.shapes.filter(s=> s.t!=null && t>=s.t-0.05 && t<=s.t+Math.max(hold,0.1));
+      const shapesAt=t=> m.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll));
       const frame=()=>{
         c.drawImage(vid,0,0,cv.width,cv.height);
         const sh=shapesAt(vid.currentTime);
@@ -2884,7 +2961,7 @@ document.addEventListener('keydown',e=>{
   if(mod && e.key==='a' && curClip){
     e.preventDefault();
     const burnAll=$('#burnmode') && $('#burnmode').value==='all', hold=+$('#hold').value||0, now=vid.currentTime;
-    selection = curClip.shapes.filter(s=> burnAll || (s.t!=null && now>=s.t-0.05 && now<=s.t+Math.max(hold,0.1)));
+    selection = curClip.shapes.filter(s=> shapeVisibleAt(s,now,hold,burnAll));
     render(); return;
   }
   if(mod && (e.key==='c'||e.key==='x') && selection.length){
