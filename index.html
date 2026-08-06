@@ -2199,17 +2199,29 @@ function migrateMark(m){
 }
 
 /* is p inside a text mark's drawn box / a marker's disc (px space, matches paint) */
+/* Wrapped display lines + box width for a text mark. If the box has been resized
+   (s.w, a normalised width) the text word-wraps to fit; otherwise lines are as
+   typed. Hard line breaks (Shift+Enter) always split. */
+function textMetrics(s, ctx, W, scale){
+  ctx.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
+  const lh=22*scale, paras=(s.text||'').split('\n');
+  let lines;
+  if(s.w){
+    const maxpx=Math.max(20, s.w*W); lines=[];
+    for(const p of paras){ const wl=wrap(ctx,p,maxpx); if(wl.length) lines.push(...wl); else lines.push(''); }
+  } else lines=paras;
+  const natW=Math.max(0,...lines.map(l=>ctx.measureText(l).width));
+  return { lines, lh, boxW: s.w ? Math.max(s.w*W, natW) : natW };
+}
 function textBoxHit(p,s){
   if(!s.a) return false;
   const W=draw.width, H=draw.height, scale=Math.max(1,W/900);
   if(s.tool==='disc') return Math.hypot((p.x-s.a.x)*W,(p.y-s.a.y)*H) < 16*scale;
   const px=p.x*W, py=p.y*H;
   const mc=(textBoxHit._mc||(textBoxHit._mc=document.createElement('canvas').getContext('2d')));
-  mc.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
-  const lines=(s.text||'').split('\n'), lh=22*scale;
-  const w=Math.max(0,...lines.map(l=>mc.measureText(l).width));
-  return px>=s.a.x*W-8*scale && px<=s.a.x*W+w+8*scale &&
-         py>=s.a.y*H-16*scale && py<=s.a.y*H + (lines.length-1)*lh + 16*scale;
+  const m=textMetrics(s,mc,W,scale);
+  return px>=s.a.x*W-8*scale && px<=s.a.x*W+m.boxW+8*scale &&
+         py>=s.a.y*H-16*scale && py<=s.a.y*H + (m.lines.length-1)*m.lh + 16*scale;
 }
 /* topmost text/marker under p */
 function textHitsAt(p){
@@ -2249,16 +2261,23 @@ function editTextInline(s, isNew, initialValue){
   const top =(r.top -bR.top )+s.a.y*dispH - (bd+padY+lineH/2);
   editingShape=s; selection=[s]; render();
   const inp=document.createElement('textarea');
-  inp.value=(initialValue!=null?initialValue:(s.text||'')); inp.spellcheck=false; inp.wrap='off';
+  const wrapMode = s.tool==='text' && !!s.w;   /* a resized box wraps like PowerPoint */
+  const boxWpx = wrapMode ? Math.max(24, s.w*dispW) : 0;
+  inp.value=(initialValue!=null?initialValue:(s.text||'')); inp.spellcheck=false; inp.wrap=wrapMode?'soft':'off';
   inp.style.cssText=`position:absolute;left:${left}px;top:${top}px;`
     +`font:600 ${fontPx}px/${lineH}px "Barlow Condensed",sans-serif;color:${col};`
     +`background:rgba(6,13,10,.92);border:${bd}px solid ${col};border-radius:3px;`
-    +`padding:${padY}px ${padX}px;z-index:70;caret-color:${col};outline:none;box-sizing:content-box;`
-    +`min-width:24px;max-width:${Math.max(60,dispW-left-8)}px;resize:none;overflow:hidden;white-space:pre;`;
+    +`padding:${padY}px ${padX}px;z-index:70;caret-color:${col};outline:none;box-sizing:content-box;resize:none;overflow:hidden;`
+    +(wrapMode
+        ? `width:${boxWpx}px;white-space:pre-wrap;overflow-wrap:break-word;`
+        : `min-width:24px;max-width:${Math.max(60,dispW-left-8)}px;white-space:pre;`);
   box.appendChild(inp);
-  /* grow the box to fit the text; Shift+Enter adds lines (e.g. bullet points) */
+  /* a fixed-width box wraps and grows tall; an unsized box grows wide to fit.
+     Shift+Enter adds hard line breaks (e.g. bullet points). */
   const meas=document.createElement('canvas').getContext('2d');
-  const fit=()=>{ meas.font=`600 ${fontPx}px "Barlow Condensed",sans-serif`;
+  const fit=()=>{
+    if(wrapMode){ inp.style.height='auto'; inp.style.height=inp.scrollHeight+'px'; return; }
+    meas.font=`600 ${fontPx}px "Barlow Condensed",sans-serif`;
     const lines=(inp.value||' ').split('\n');
     inp.style.width=Math.ceil(Math.max(...lines.map(l=>meas.measureText(l||' ').width)))+6+'px';
     inp.style.height=(lines.length*lineH)+'px'; };
@@ -2272,11 +2291,11 @@ function editTextInline(s, isNew, initialValue){
       if(s.tool==='text'){   /* keep the whole box on screen — only nudges if it would run off */
         const Wc=draw.width,Hc=draw.height,sc=Math.max(1,Wc/900);
         const mc=(editTextInline._mc||(editTextInline._mc=document.createElement('canvas').getContext('2d')));
-        mc.font=`600 ${19*sc}px "Barlow Condensed",sans-serif`;
-        const ls=s.text.split('\n'), llh=22*sc, ww=Math.max(0,...ls.map(l=>mc.measureText(l).width));
+        const m=textMetrics(s, mc, Wc, sc);
+        const ww=m.boxW, nLines=m.lines.length, llh=m.lh;
         let ax=s.a.x*Wc, ay=s.a.y*Hc;
         ax=Math.min(Math.max(ax,6*sc), Math.max(6*sc, Wc-ww-6*sc));
-        ay=Math.min(Math.max(ay,14*sc), Math.max(14*sc, Hc-((ls.length-1)*llh+14*sc)));
+        ay=Math.min(Math.max(ay,14*sc), Math.max(14*sc, Hc-((nLines-1)*llh+14*sc)));
         s.a={x:ax/Wc, y:ay/Hc};
       }
     }
@@ -2546,6 +2565,12 @@ function pickHandle(p){
       const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
       if(dist(p,{x:(mx-dy*fb)/W, y:(my+dx*fb)/H})<te) return {s,mode:'curvebow'};
     }
+    if(s.tool==='text'){   /* right-edge handle resizes the box → text re-wraps */
+      const mc=(pickHandle._mc||(pickHandle._mc=document.createElement('canvas').getContext('2d')));
+      const m=textMetrics(s,mc,W,hscale);
+      const rx=(s.a.x*W+m.boxW)/W, ry=(s.a.y*H+(m.lines.length-1)*m.lh/2)/H;
+      if(dist(p,{x:rx,y:ry})<te) return {s,mode:'twidth'};
+    }
     if(s.c && dist(p,s.c)<te) return {s,mode:'c'};
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
@@ -2599,6 +2624,9 @@ function applyMove(p){
       const px=p.x*W, py=p.y*H;
       s.bow=Math.max(-1.5,Math.min(1.5, ((px-mx)*(-ddy)+(py-my)*ddx)/denom));
     }
+    else if(mode==='twidth'){   /* drag the right edge: set the text box width; text re-wraps */
+      s.w=Math.max(0.05, Math.min(1, p.x - s.a.x));
+    }
   }
   moving.moved=true; render();
 }
@@ -2623,6 +2651,11 @@ function drawHandles(s){
     const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
     dotPx(mx-dy*fb, my+dx*fb); }
   else if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
+  else if(s.tool==='text'){   /* right-edge handle to resize the box (drag → text wraps) */
+    const mc=(drawHandles._mc||(drawHandles._mc=document.createElement('canvas').getContext('2d')));
+    const m=textMetrics(s,mc,W,scale);
+    dotPx(s.a.x*W+m.boxW, s.a.y*H + (m.lines.length-1)*m.lh/2);
+  }
   else if(s.pts){ dot(s.pts[0]); dot(s.pts[s.pts.length-1]); }
   else { dot(s.a); if(s.b) dot(s.b); }
   ctx.restore();
@@ -2819,10 +2852,8 @@ function paint(c, W, H, shapes, extra){
       c.fillText(s.text, s.a.x*W, s.a.y*H+scale*.5);
     }
     else if(s.tool==='text'){
-      c.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
       c.textAlign='left'; c.textBaseline='middle';
-      const lines=(s.text||'').split('\n'), lh=22*scale;
-      const w=Math.max(0,...lines.map(l=>c.measureText(l).width));
+      const m=textMetrics(s,c,W,scale), lines=m.lines, lh=m.lh, w=m.boxW;
       const x=s.a.x*W, y=s.a.y*H;
       c.shadowBlur=0; c.fillStyle='rgba(6,13,10,.82)';
       c.fillRect(x-6*scale, y-14*scale, w+12*scale, (lines.length-1)*lh + 28*scale);
