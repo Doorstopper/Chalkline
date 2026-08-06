@@ -565,6 +565,13 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <select id="recat" disabled><option>Pick a clip first</option></select>
         </label>
 
+        <label class="field"><span class="eyebrow">Reel type</span>
+          <div style="display:flex;gap:6px">
+            <button class="tbtn" id="kindhi" type="button" aria-pressed="false" disabled style="flex:1" title="Tag this clip as a Highlight, so you can compile a Highlights-only reel">★ Highlight</button>
+            <button class="tbtn" id="kindlearn" type="button" aria-pressed="false" disabled style="flex:1" title="Tag this clip as a Learning clip, so you can compile a Learning-only reel">🎓 Learning</button>
+          </div>
+        </label>
+
         <label class="field"><span class="eyebrow">Player</span>
           <input type="text" list="playernames" id="clipplayer" placeholder="Team (no one)" disabled>
         </label>
@@ -648,10 +655,17 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
         <div class="sep"></div>
         <div class="eyebrow">Whole game reel</div>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card before each clip
+        <label class="field"><span class="eyebrow">Reel includes</span>
+          <select id="reelkind">
+            <option value="all">All clips</option>
+            <option value="highlight">★ Highlights only</option>
+            <option value="learning">🎓 Learning only</option>
+          </select>
         </label>
-        <button class="btn" id="reelbtn">Compile all clips into one video</button>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card (3s) before each clip
+        </label>
+        <button class="btn" id="reelbtn">Compile clips into one video</button>
         <div class="hint" id="reelhint">Plays every clip through once to record it, so it takes about as long as the reel itself.</div>
 
         <div class="sep"></div>
@@ -1454,7 +1468,7 @@ function renderClips(){
     const dur = Math.round(clipEnd(m)-clipStart(m));
     const who = playerOf(m);
     b.innerHTML = `<div class="t">${fmtClock(clipStart(m))} · ${dur}s${m.shapes.length?' · '+m.shapes.length+' drawn':''}</div>
-      <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}</div>
+      <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}${m.kind?`<span style="margin-left:6px;font-size:10px;font-weight:700;color:${m.kind==='highlight'?'#FFC93C':'#8FC4FF'}">${m.kind==='highlight'?'★ HL':'🎓 LRN'}</span>`:''}</div>
       ${who?`<div class="who">${esc(who)}</div>`:''}
       ${m.caption?`<div class="cap">${esc(m.caption)}</div>`:''}`;
     /* hover shows the full caption/notes, which the card truncates */
@@ -1502,6 +1516,7 @@ function selectClip(m){
     rc.prepend(o);
   }
   updateCap();
+  syncKindBtns();
   if(vid.src){ vid.currentTime = clipStart(m); loopArmed = true; }
   if(isPhone()) setPanel('markup');
   renderClips(); drawRail(); render();
@@ -1524,6 +1539,23 @@ $('#offset').addEventListener('input',()=>{ S.offset=+$('#offset').value||0; ren
 $('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value||25); save(); });
 
 $('#caption').addEventListener('input',()=>{ if(curClip){ curClip.caption=$('#caption').value; touch(curClip); updateCap(); renderClips(); save(); }});
+
+/* Highlight / Learning: tag a clip so it can be pulled into a Highlights-only or
+   Learning-only reel. Mutually exclusive; click again to clear. */
+function syncKindBtns(){
+  const k=curClip&&curClip.kind, hi=$('#kindhi'), ln=$('#kindlearn');
+  [hi,ln].forEach(b=>{ b.disabled=!curClip; });
+  hi.setAttribute('aria-pressed', k==='highlight');
+  ln.setAttribute('aria-pressed', k==='learning');
+}
+function setKind(which){
+  if(!curClip) return;
+  if(curClip.kind===which) delete curClip.kind; else curClip.kind=which;
+  touch(curClip); syncKindBtns(); renderClips(); save();
+  toast(curClip.kind==='highlight'?'Tagged as Highlight':curClip.kind==='learning'?'Tagged as Learning':'Reel tag cleared');
+}
+$('#kindhi').addEventListener('click',()=>setKind('highlight'));
+$('#kindlearn').addEventListener('click',()=>setKind('learning'));
 
 /* player tagging: per-clip, the default for new clips, and the list/export filter */
 $('#clipplayer').addEventListener('input',()=>{ if(curClip){ curClip.player=$('#clipplayer').value.trim(); touch(curClip); renderClips(); save(); }});
@@ -3229,6 +3261,16 @@ function paintTitleCard(c,W,H,m,i,total){
   c.font=`600 ${44*s}px "Barlow Condensed",sans-serif`;
   c.fillText(String(m.label).toUpperCase(), x, H*0.375);
 
+  if(m.kind){                       /* Highlight / Learning badge */
+    const badge = m.kind==='highlight' ? '★ HIGHLIGHT' : '🎓 LEARNING';
+    const bc    = m.kind==='highlight' ? '#FFC93C' : '#8FC4FF';
+    c.font=`700 ${15*s}px "IBM Plex Sans",sans-serif`;
+    const bw=c.measureText(badge).width;
+    c.fillStyle=`rgba(${m.kind==='highlight'?'255,201,60':'143,196,255'},.16)`;
+    c.fillRect(x, H*0.19, bw+18*s, 26*s);
+    c.fillStyle=bc; c.fillText(badge, x+9*s, H*0.197);
+  }
+
   if(m.caption){
     c.fillStyle='#FFC93C';
     c.font=`500 ${21*s}px "IBM Plex Sans",sans-serif`;
@@ -3241,8 +3283,11 @@ async function compileReel(){
   if(!vid.videoWidth) return toast('Load the match first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(!videoReadable()) return warnBlank();
-  const list=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
-  const scopeName = filterPlayer==='__all' ? '' : filterPlayer==='__none' ? 'team' : filterPlayer;
+  const reelKind=($('#reelkind')||{}).value||'all';
+  let list=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  if(reelKind!=='all') list=list.filter(m=>m.kind===reelKind);
+  const kindName = reelKind==='highlight' ? 'highlight' : reelKind==='learning' ? 'learning' : '';
+  const scopeName = [filterPlayer==='__all' ? '' : filterPlayer==='__none' ? 'team' : filterPlayer, kindName].filter(Boolean).join(' ');
   if(!list.length) return toast(scopeName ? `No ${scopeName} clips to compile` : 'No clips to compile');
 
   const total = list.reduce((n,m)=>n+(clipEnd(m)-clipStart(m)),0);
@@ -3311,7 +3356,7 @@ async function compileReel(){
           (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); }); vid.pause(); };
 
       await seekTo(mStart);
-      if(cards) await runFor(2500, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
+      if(cards) await runFor(3000, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
 
       const beats=beatTimes(m).filter(t=>t>mStart+0.1 && t<mEnd-0.1);
       for(const b of beats){ await playTo(b); await seekTo(b); await holdAt(b); }
@@ -3321,9 +3366,10 @@ async function compileReel(){
     rec.stop();
     await new Promise(r=>rec.onstop=r);
     const isMp4=(rec.mimeType||mime||'').includes('mp4');
-    const tag = filterPlayer==='__all' ? '' : (safe(filterPlayer==='__none'?'team':filterPlayer)+'-');
+    const ptag = filterPlayer==='__all' ? '' : (safe(filterPlayer==='__none'?'team':filterPlayer)+'-');
+    const ktag = reelKind==='all' ? '' : (reelKind+'s-');
     await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
-      'chalkline-reel-'+tag+stamp()+'.'+(isMp4?'mp4':'webm'));
+      'chalkline-'+ktag+'reel-'+ptag+stamp()+'.'+(isMp4?'mp4':'webm'));
     toast('Reel exported — '+list.length+' clips');
   }catch(err){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
