@@ -504,6 +504,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Freeze</button>
           <button class="tbtn" id="changevid">Change video</button>
           <button class="tbtn" id="mutebtn" aria-pressed="true" title="Mute while watching">Muted</button>
+          <button class="tbtn" id="marksbtn" aria-pressed="true" title="Show or hide all markups while watching — hiding never deletes them">Marks on</button>
         </div>
         <div class="tagbar" id="tagbar">
           <span class="eyebrow" style="flex:none">Tag as you watch</span>
@@ -1654,6 +1655,14 @@ $('#mutebtn').addEventListener('click',()=>{
   $('#mutebtn').setAttribute('aria-pressed', vid.muted);
   $('#mutebtn').textContent = vid.muted ? 'Muted' : 'Mute';
 });
+/* Show/hide the whole telestration overlay while watching. Purely visual — the
+   marks stay in curClip.shapes, so toggling back on restores them untouched. */
+$('#marksbtn').addEventListener('click',()=>{
+  marksHidden=!marksHidden;
+  $('#marksbtn').setAttribute('aria-pressed', !marksHidden);
+  $('#marksbtn').textContent = marksHidden ? 'Marks off' : 'Marks on';
+  render();
+});
 /* ---------- phone panel switch ---------- */
 function setPanel(p){
   document.body.classList.remove('panel-clips','panel-markup');
@@ -1731,12 +1740,15 @@ function customTag(){
 
 let exporting = false, loopArmed = false;
 let autoFreeze = true, liveFrozeSet = new Set(), liveHoldT = null;
+/* Watch the clip with or without the telestration overlay. Hiding never touches
+   curClip.shapes, so the marks come straight back when toggled on again. */
+let marksHidden = false;
 function updateTC(){
   $('#tcode').innerHTML = fmtTC(vid.currentTime)+' <small>/ '+fmtClock(vid.duration||0)+'</small>';
   if(vid.duration) $('#railhead').style.left = (vid.currentTime/vid.duration*100)+'%';
   /* Live freeze: while reviewing, pause at the frame you marked, hold for the
      Freeze-hold seconds, then carry on. */
-  if(autoFreeze && !exporting && curClip && !vid.paused){
+  if(autoFreeze && !marksHidden && !exporting && curClip && !vid.paused){
     const h=+$('#hold').value||0;
     if(h>0){
       const now=vid.currentTime; let hit=null;
@@ -2341,12 +2353,12 @@ function render(){
   const burnAll = $('#burnmode') && $('#burnmode').value==='all';
   const hold = +$('#hold').value||0, now = vid.currentTime;
   const vis = s => shapeVisibleAt(s, now, hold, burnAll);
-  const shapes = !curClip ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
-  paint(ctx, draw.width, draw.height, shapes, dragging);
-  if(curClip) selection.forEach(s=>{
+  const shapes = (!curClip || marksHidden) ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
+  paint(ctx, draw.width, draw.height, shapes, marksHidden?null:dragging);
+  if(!marksHidden && curClip) selection.forEach(s=>{
     if(curClip.shapes.includes(s) && s!==editingShape && vis(s)) drawHandles(s);
   });
-  if(marquee){
+  if(!marksHidden && marquee){
     const W=draw.width,H=draw.height,scale=Math.max(1,W/900);
     const x=Math.min(marquee.a.x,marquee.b.x)*W, y=Math.min(marquee.a.y,marquee.b.y)*H;
     const w=Math.abs(marquee.b.x-marquee.a.x)*W, h=Math.abs(marquee.b.y-marquee.a.y)*H;
