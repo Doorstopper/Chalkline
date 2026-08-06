@@ -1883,14 +1883,15 @@ draw.addEventListener('pointermove', e=>{
 draw.addEventListener('pointerup', ()=>{
   if(marquee){ const box=marquee; marquee=null; selectInBox(box); render(); return; }
   if(moving){ const m=moving; moving=null;
-    if(m.mode==='gmove'){ const s=m.gs; if(m.moved && s._live) upsertKf(s, vid.currentTime, s._live.x, s._live.y); delete s._live; m.moved?commit():render(); return; }
+    if(m.mode==='gmove'){ const s=m.gs; if(m.moved && s._live){ upsertKf(s, vid.currentTime, s._live.x, s._live.y); toast('Follow point '+s.kf.length+' set — the ring glides between points'); } delete s._live; m.moved?commit():render(); return; }
     if(m.moved){ commit(); } else render(); return; }
   if(!dragging) return;
   const d=dragging; dragging=null;
   if(d.tool==='ground'){   /* place the ring with its first follow keyframe */
     const rpx=Math.hypot((d.b.x-d.a.x)*draw.width,(d.b.y-d.a.y)*draw.height);
     if(rpx>=8){ curClip.shapes.push({tool:'ground', color:d.color, r:Math.max(0.02, rpx/draw.width),
-      kf:[{t:vid.currentTime, x:d.a.x, y:d.a.y}], t:vid.currentTime}); selection=[curClip.shapes[curClip.shapes.length-1]]; commit(); }
+      kf:[{t:vid.currentTime, x:d.a.x, y:d.a.y}], t:vid.currentTime}); selection=[curClip.shapes[curClip.shapes.length-1]]; commit();
+      toast('Follow point 1 set — scrub ahead and drag the ring onto the player to add more, or tap Track'); }
     else render();
     return;
   }
