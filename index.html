@@ -181,12 +181,11 @@ button{cursor:pointer;border:none;background:none}
 /* The magnifier loupe: a circular window holding a magnified duplicate of the
    video (native <video>, so HEVC still shows) plus a scaled copy of the marks. */
 .loupe{position:absolute;border-radius:50%;overflow:hidden;pointer-events:none;
+  -webkit-clip-path:circle(50%);clip-path:circle(50%);
   box-shadow:0 4px 18px rgba(0,0,0,.55),0 0 0 3px rgba(255,255,255,.9),0 0 0 5px rgba(6,12,9,.7);
   z-index:6;display:none;background:#000}
 .loupe.on{display:block}
 .loupe video,.loupe canvas{position:absolute;left:0;top:0;max-width:none}
-.loupe .xhair{position:absolute;left:50%;top:50%;width:14px;height:14px;transform:translate(-50%,-50%);
-  border:1px solid rgba(255,255,255,.7);border-radius:50%;pointer-events:none}
 #dropzone{
   position:absolute;inset:10px;border:1px dashed var(--line);border-radius:var(--r);
   display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:24px;
@@ -1739,8 +1738,7 @@ function ensureLoupe(){
   loupeBox.style.width=loupeBox.style.height=(LOUPE_R*2)+'px';
   loupeVid=document.createElement('video'); loupeVid.muted=true; loupeVid.playsInline=true; loupeVid.preload='auto';
   loupeCv=document.createElement('canvas'); loupeCv.width=draw.width; loupeCv.height=draw.height;
-  const xh=document.createElement('div'); xh.className='xhair';
-  loupeBox.append(loupeVid, loupeCv, xh);
+  loupeBox.append(loupeVid, loupeCv);
   wrap.appendChild(loupeBox);
 }
 function moveLoupe(e){ loupePt={x:e.clientX, y:e.clientY}; refreshLoupe(); }
@@ -1773,13 +1771,14 @@ function refreshLoupe(){
   if(!marksHidden){ try{ lx.drawImage(draw,0,0,loupeCv.width,loupeCv.height); }catch(_){} }
   loupeBox.classList.add('on');
 }
-$('#loupebtn').addEventListener('click',()=>{
-  loupeOn=!loupeOn;
+function setLoupe(on){
+  loupeOn=on;
   $('#loupebtn').setAttribute('aria-pressed', loupeOn);
   if(loupeOn){ ensureLoupe(); draw.classList.add('loupe-cursor');
     const vr=vid.getBoundingClientRect(); loupePt={x:vr.left+vr.width/2, y:vr.top+vr.height/2}; refreshLoupe(); }
   else { draw.classList.remove('loupe-cursor'); if(loupeBox){ loupeBox.classList.remove('on'); } if(loupeVid){ try{loupeVid.pause();}catch(_){} } }
-});
+}
+$('#loupebtn').addEventListener('click',()=> setLoupe(!loupeOn));
 
 /* ---------- phone panel switch ---------- */
 function setPanel(p){
@@ -2058,6 +2057,7 @@ draw.addEventListener('pointerup', ()=>{
 /* double-click finishes the Connect line. The two clicks of the double-click each
    added the end point, so drop the duplicate before committing. */
 draw.addEventListener('dblclick', e=>{
+  if(loupeOn){ e.preventDefault(); setLoupe(false); return; }  /* double-click closes the magnifier */
   if(!chaining) return;
   e.preventDefault();
   if(chaining.pts.length>=2) chaining.pts.pop();
@@ -2556,9 +2556,12 @@ function render(){
   const chainPrev = chaining ? {tool:'chain', color:chaining.color,
     pts: chainCursor ? chaining.pts.concat([chainCursor]) : chaining.pts} : null;
   paint(ctx, draw.width, draw.height, shapes, marksHidden?null:(dragging||chainPrev));
-  /* Persistent move grip on every ground ring so you always know exactly where to
-     grab it — drawn on the live canvas only, so exports stay clean. */
-  if(!marksHidden && curClip){
+  /* Feed the loupe the CLEAN marks (video + telestration) before any editing chrome
+     — grip, handles, marquee — so none of that gets magnified inside the glass. */
+  if(loupeOn && typeof refreshLoupe==='function') refreshLoupe();
+  /* Move grip on each ground ring — only while PAUSED (i.e. when you're placing the
+     circle), so normal playback stays clean. Live canvas only, so exports are clean too. */
+  if(!marksHidden && curClip && vid.paused){
     const W=draw.width,H=draw.height,scale=Math.max(1,W/900),g=11*scale;
     shapes.filter(s=>s.tool==='ground').forEach(s=>{
       const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a; if(!ctr) return;
@@ -2582,7 +2585,6 @@ function render(){
     ctx.save(); ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.lineWidth=1.4*scale; ctx.setLineDash([6*scale,4*scale]);
     ctx.strokeRect(x,y,w,h); ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(x,y,w,h); ctx.restore();
   }
-  if(loupeOn && typeof refreshLoupe==='function') refreshLoupe();
 }
 
 function loopRender(){
@@ -3340,6 +3342,7 @@ document.addEventListener('keydown',e=>{
   if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if(!$('#studio').classList.contains('on')) return;
   const mod = e.metaKey||e.ctrlKey;
+  if(e.key==='Escape' && loupeOn){ e.preventDefault(); setLoupe(false); return; }
   if(e.key==='Escape' && chaining){ e.preventDefault(); cancelChain(false); return; }
   if(e.key==='Enter' && chaining){ e.preventDefault(); cancelChain(true); return; }
   if(mod && e.key==='z'){ e.preventDefault(); undoMarkup(); return; }
