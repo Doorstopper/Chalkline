@@ -2421,8 +2421,15 @@ function paint(c, W, H, shapes, extra){
       else { cx=s.a.x*W; cy=s.a.y*H; rx=Math.hypot((s.b.x-s.a.x)*W,(s.b.y-s.a.y)*H); }
       rx=Math.max(rx,8); const ry=rx*0.42;
       c.shadowBlur=6*scale;
-      c.fillStyle=hexA(col,.18); c.beginPath(); c.ellipse(cx,cy,rx,ry,0,0,7); c.fill();
-      c.strokeStyle=col; c.lineWidth=lw*0.9; c.beginPath(); c.ellipse(cx,cy,rx,ry,0,0,7); c.stroke();
+      /* Fade the back (top) of the ring toward transparent so the player looks like
+         they're standing INSIDE it — the front (bottom) edge stays solid, the far
+         edge behind their legs melts away instead of slicing through them. */
+      const gf=c.createLinearGradient(0,cy-ry,0,cy+ry);
+      gf.addColorStop(0,hexA(col,0)); gf.addColorStop(.55,hexA(col,.10)); gf.addColorStop(1,hexA(col,.22));
+      c.fillStyle=gf; c.beginPath(); c.ellipse(cx,cy,rx,ry,0,0,7); c.fill();
+      const gs=c.createLinearGradient(0,cy-ry,0,cy+ry);
+      gs.addColorStop(0,hexA(col,0)); gs.addColorStop(.45,hexA(col,.4)); gs.addColorStop(1,col);
+      c.strokeStyle=gs; c.lineWidth=lw*0.9; c.beginPath(); c.ellipse(cx,cy,rx,ry,0,0,7); c.stroke();
     }
     else if(s.tool==='wedge'){
       if(!s.b||!s.c){ c.restore(); return; }
