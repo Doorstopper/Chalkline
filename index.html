@@ -220,6 +220,10 @@ button{cursor:pointer;border:none;background:none}
 .railtick.sel{width:3px;box-shadow:0 0 0 1px rgba(255,255,255,.45)}
 .railwin{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.14);border-left:1px solid var(--flood);border-right:1px solid var(--flood)}
 .railhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--chalk);pointer-events:none}
+.railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
+.railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
+  border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
+  pointer-events:none;white-space:nowrap;display:none;z-index:6}
 .tbar{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
 .tbtn{
   border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;background:var(--turf);
@@ -492,7 +496,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
       <div class="transport">
         <div class="rail" id="rail">
           <div class="railwin" id="railwin" style="display:none"></div>
+          <div class="railhover" id="railhover"></div>
           <div class="railhead" id="railhead" style="left:0"></div>
+          <div class="railtip" id="railtip"></div>
         </div>
         <div class="tbar">
           <button class="tbtn" id="playbtn">Play</button>
@@ -516,6 +522,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" data-rate="1" aria-pressed="true">1×</button>
           <button class="tbtn" data-rate="1.5" title="Skim faster">1.5×</button>
           <button class="tbtn" data-rate="2" title="Skim faster">2×</button>
+          <button class="tbtn" data-rate="3" title="Skim faster">3×</button>
           <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
           <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Freeze</button>
           <button class="tbtn" id="changevid">Change video</button>
@@ -1961,6 +1968,19 @@ $('#rail').addEventListener('click',e=>{
   loopArmed = false;
   render();
 });
+/* hover the time bar to preview the elapsed time at the pointer */
+$('#rail').addEventListener('mousemove',e=>{
+  const tip=$('#railtip'), hov=$('#railhover');
+  if(!vid.duration){ tip.style.display=hov.style.display='none'; return; }
+  const r=e.currentTarget.getBoundingClientRect();
+  const x=Math.max(0, Math.min(r.width, e.clientX-r.left));
+  tip.textContent = fmtClock(x/r.width*vid.duration);
+  tip.style.display=hov.style.display='block';
+  hov.style.left=x+'px';
+  const half=tip.offsetWidth/2;
+  tip.style.left=Math.max(half, Math.min(r.width-half, x))+'px';
+});
+$('#rail').addEventListener('mouseleave',()=>{ $('#railtip').style.display='none'; $('#railhover').style.display='none'; });
 
 /* ============================================================
    TELESTRATION
