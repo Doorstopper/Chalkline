@@ -519,6 +519,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="changevid">Change video</button>
           <button class="tbtn" id="mutebtn" aria-pressed="true" title="Mute while watching">Muted</button>
           <button class="tbtn" id="marksbtn" aria-pressed="true" title="Show or hide all markups while watching — hiding never deletes them">Marks on</button>
+          <button class="tbtn" id="gripsbtn" aria-pressed="false" title="Show the move grips for editing when paused. Leave off to pause and explain without them.">✛ Grips off</button>
           <button class="tbtn" id="zoomout" title="Zoom the whole picture out">Zoom −</button>
           <button class="tbtn" id="zoomlvl" title="Current zoom — click to reset to 100%">100%</button>
           <button class="tbtn" id="zoomin" title="Zoom the whole picture in">Zoom +</button>
@@ -1684,6 +1685,14 @@ $('#marksbtn').addEventListener('click',()=>{
   $('#marksbtn').textContent = marksHidden ? 'Marks off' : 'Marks on';
   render();
 });
+/* Show/hide the editing move grips. Off by default so pausing to explain stays
+   clean; turn on when you want to grab and move marks. */
+$('#gripsbtn').addEventListener('click',()=>{
+  gripsOn=!gripsOn;
+  $('#gripsbtn').setAttribute('aria-pressed', gripsOn);
+  $('#gripsbtn').textContent = gripsOn ? '✛ Grips on' : '✛ Grips off';
+  render();
+});
 
 /* ======================= Zoom & magnifier ============================
    Two ways to look closer, both codec-safe (they scale the real <video>
@@ -1863,6 +1872,9 @@ let autoFreeze = true, liveFrozeSet = new Set(), liveHoldT = null;
 /* Watch the clip with or without the telestration overlay. Hiding never touches
    curClip.shapes, so the marks come straight back when toggled on again. */
 let marksHidden = false;
+/* Move grips are opt-in: off by default so you can pause to explain without the
+   editing crosshairs. Turn on (Grips button) when you actually want to edit. */
+let gripsOn = false;
 function updateTC(){
   $('#tcode').innerHTML = fmtTC(vid.currentTime)+' <small>/ '+fmtClock(vid.duration||0)+'</small>';
   if(vid.duration) $('#railhead').style.left = (vid.currentTime/vid.duration*100)+'%';
@@ -2456,7 +2468,7 @@ function pickHandle(p){
      never resizes by accident. Active while PAUSED — i.e. when you're editing —
      so normal playback clicks are unaffected. The clickable area is kept TIGHT to
      the drawn emblem; miss it and a click on the mark's body still moves it. */
-  if(vid.paused) for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
+  if(vid.paused && gripsOn) for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
     const c=shapeCenter(s); if(!c) continue;
     const gr=(s.tool==='ground'?12:11)*hscale;   /* == the drawn grip radius */
     if(Math.hypot((p.x-c.x)*W,(p.y-c.y)*H) < gr) return {s, mode: s.tool==='ground'?'gmove':'move'};
@@ -2575,9 +2587,9 @@ function render(){
   /* Feed the loupe the CLEAN marks (video + telestration) before any editing chrome
      — grip, handles, marquee — so none of that gets magnified inside the glass. */
   if(loupeOn && typeof refreshLoupe==='function') refreshLoupe();
-  /* Move grip on every mark — only while PAUSED (i.e. when you're editing), so
-     normal playback stays clean. Live canvas only, so exports are clean too. */
-  if(!marksHidden && curClip && vid.paused){
+  /* Move grip on every mark — only when Grips is on AND paused, so you can pause to
+     explain without them. Live canvas only, so exports are clean too. */
+  if(!marksHidden && curClip && vid.paused && gripsOn){
     const W=draw.width,H=draw.height,scale=Math.max(1,W/900);
     shapes.forEach(s=>{
       const c=shapeCenter(s); if(!c) return;
