@@ -544,6 +544,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
       <div class="colhead"><span class="eyebrow">Markup</span>
         <button class="tbtn" id="trackbtn" title="Auto-follow the player under the selected Ground ring">Track</button>
         <button class="tbtn" id="flipbtn" title="Flip a selected curved or over-the-top arrow to bow the other way">⤢ Flip</button>
+        <button class="tbtn" id="planebtn" title="Tilt a selected curved arrow into a 3D plane — going away, coming toward you, or flat">◈ Plane</button>
         <button class="tbtn" id="undomarks">Undo</button>
         <button class="tbtn" id="clearbtn">Clear</button>
       </div>
@@ -2239,6 +2240,16 @@ $('#flipbtn').addEventListener('click',()=>{
   targets.forEach(s=>{ if(s.bow!=null) s.bow=-s.bow; else s.flip=!s.flip; });
   commit();
 });
+$('#planebtn').addEventListener('click',()=>{
+  if(!curClip) return;
+  const targets=selection.filter(s=>s.tool==='curve'||s.tool==='lob');
+  if(!targets.length) return toast('Select a curved or over-the-top arrow first, then Plane');
+  /* cycle flat → going away → coming toward → flat */
+  targets.forEach(s=>{ const cur=s.depth||0; s.depth = cur===0 ? 0.85 : cur>0 ? -0.85 : 0; });
+  const st=targets[0].depth;
+  toast(st>0?'Going away from you (3D)':st<0?'Coming toward you (3D)':'Flat again');
+  commit();
+});
 $('#trackbtn').addEventListener('click',()=>{
   const ring = selection.find(s=>s.tool==='ground') || (curClip && curClip.shapes.filter(s=>s.tool==='ground').pop());
   if(!ring) return toast('Place a Ground ring on the player, then Track');
@@ -2430,6 +2441,10 @@ function pickHandle(p){
     if(s.tool==='ground'){ const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
       if(ctr && s.r!=null && dist(p,{x:ctr.x+s.r,y:ctr.y})<te) return {s,mode:'gradius'};
       continue; }
+    /* Resize/adjust handles belong only to the SELECTED mark. An unselected mark
+       falls through to the body-grab below, so the first drag just moves it and
+       never nudges an endpoint, apex or curve by accident. */
+    if(!isSel(s)) continue;
     if(s.tool==='curve'){   /* apex handle sets how tight the curve bows */
       const W=draw.width,H=draw.height, ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
       const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
@@ -2665,16 +2680,30 @@ function paint(c, W, H, shapes, extra){
       const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1;
       const nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55, 120*scale), sgn=(ny>0?-1:1)*(s.flip?-1:1);
       const cx=mx+nx*bow*sgn, cy=my+ny*bow*sgn;
-      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
-      head(c, cx,cy, bx,by, scale);
+      const d=s.depth||0;
+      if(d){                       /* 3D plane: taper the ribbon + scale the head */
+        const wS=Math.max(1.2, lw*(1+0.3*d)), wE=Math.max(1.2, lw*(1-0.6*d));
+        taperedCurve(c, ax,ay, cx,cy, bx,by, wS, wE);
+        head(c,cx,cy,bx,by, scale*Math.max(0.5,Math.min(1.4, wE/lw)));
+      } else {
+        c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+        head(c, cx,cy, bx,by, scale);
+      }
     }
     else if(s.tool==='curve'){
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const mx=(ax+bx)/2, my=(ay+by)/2;
       const dx=bx-ax, dy=by-ay, fb=curveBow(s);
       const cx=mx-dy*fb, cy=my+dx*fb;
-      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
-      head(c,cx,cy,bx,by,scale);
+      const d=s.depth||0;
+      if(d){                       /* 3D plane: taper the ribbon + scale the head */
+        const wS=Math.max(1.2, lw*(1+0.3*d)), wE=Math.max(1.2, lw*(1-0.6*d));
+        taperedCurve(c, ax,ay, cx,cy, bx,by, wS, wE);
+        head(c,cx,cy,bx,by, scale*Math.max(0.5,Math.min(1.4, wE/lw)));
+      } else {
+        c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+        head(c,cx,cy,bx,by,scale);
+      }
     }
     else if(s.tool==='disc'){
       const r=13*scale;
@@ -2701,6 +2730,24 @@ function paint(c, W, H, shapes, extra){
 /* signed curvature of a Curve arrow: a dragged apex overrides the default bow,
    and its sign carries the direction (so it also subsumes Flip). */
 function curveBow(s){ return s.bow!=null ? s.bow : 0.26*(s.flip?-1:1); }
+/* A quadratic arc drawn as a filled ribbon whose width tapers from wStart to wEnd.
+   Narrowing toward one end reads as depth — the arrow heading into / out of the
+   screen — which is how the Plane control fakes a 3D plane. */
+function taperedCurve(c, ax,ay, cx,cy, bx,by, wStart, wEnd){
+  const N=26, L=[], R=[];
+  for(let i=0;i<=N;i++){
+    const t=i/N, u=1-t;
+    const x=u*u*ax+2*u*t*cx+t*t*bx, y=u*u*ay+2*u*t*cy+t*t*by;
+    const tx=2*u*(cx-ax)+2*t*(bx-cx), ty=2*u*(cy-ay)+2*t*(by-cy);
+    const tl=Math.hypot(tx,ty)||1, nx=-ty/tl, ny=tx/tl;
+    const w=(wStart+(wEnd-wStart)*t)/2;
+    L.push([x+nx*w, y+ny*w]); R.push([x-nx*w, y-ny*w]);
+  }
+  c.beginPath(); c.moveTo(L[0][0],L[0][1]);
+  for(let i=1;i<L.length;i++) c.lineTo(L[i][0],L[i][1]);
+  for(let i=R.length-1;i>=0;i--) c.lineTo(R[i][0],R[i][1]);
+  c.closePath(); c.fill();
+}
 function line(c,x1,y1,x2,y2){ c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
 function head(c,x1,y1,x2,y2,scale){
   const a=Math.atan2(y2-y1,x2-x1), L=15*scale;
