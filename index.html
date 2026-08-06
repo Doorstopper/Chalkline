@@ -1936,8 +1936,10 @@ function textBoxHit(p,s){
   const px=p.x*W, py=p.y*H;
   const mc=(textBoxHit._mc||(textBoxHit._mc=document.createElement('canvas').getContext('2d')));
   mc.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
-  const w=mc.measureText(s.text||'').width;
-  return px>=s.a.x*W-8*scale && px<=s.a.x*W+w+8*scale && py>=s.a.y*H-16*scale && py<=s.a.y*H+16*scale;
+  const lines=(s.text||'').split('\n'), lh=22*scale;
+  const w=Math.max(0,...lines.map(l=>mc.measureText(l).width));
+  return px>=s.a.x*W-8*scale && px<=s.a.x*W+w+8*scale &&
+         py>=s.a.y*H-16*scale && py<=s.a.y*H + (lines.length-1)*lh + 16*scale;
 }
 /* topmost text/marker under p */
 function textHitsAt(p){
@@ -1974,24 +1976,27 @@ function editTextInline(s, isNew, initialValue){
   const fontPx=19*scale*(dispW/W);
   const col=(COLORS[s.color]||COLORS.ball).hex;
   editingShape=s; selection=[s]; render();
-  const inp=document.createElement('input');
-  inp.type='text'; inp.value=(initialValue!=null?initialValue:(s.text||'')); inp.spellcheck=false;
+  const inp=document.createElement('textarea');
+  inp.value=(initialValue!=null?initialValue:(s.text||'')); inp.spellcheck=false; inp.wrap='off';
+  const lineH=Math.round(fontPx*1.15);
   inp.style.cssText=`position:absolute;left:${left}px;top:${top}px;transform:translateY(-50%);`
-    +`font:600 ${fontPx}px "Barlow Condensed",sans-serif;color:${col};`
+    +`font:600 ${fontPx}px/${lineH}px "Barlow Condensed",sans-serif;color:${col};`
     +`background:rgba(6,13,10,.92);border:1px solid ${col};border-radius:3px;`
     +`padding:1px 6px;z-index:70;caret-color:${col};outline:none;box-sizing:content-box;`
-    +`min-width:24px;max-width:${Math.max(60,dispW-left-8)}px;`;
+    +`min-width:24px;max-width:${Math.max(60,dispW-left-8)}px;resize:none;overflow:hidden;white-space:pre;`;
   box.appendChild(inp);
-  /* grow the box to fit the text, like a PowerPoint text box */
+  /* grow the box to fit the text; Shift+Enter adds lines (e.g. bullet points) */
   const meas=document.createElement('canvas').getContext('2d');
   const fit=()=>{ meas.font=`600 ${fontPx}px "Barlow Condensed",sans-serif`;
-    inp.style.width=Math.ceil(meas.measureText(inp.value||' ').width)+4+'px'; };
+    const lines=(inp.value||' ').split('\n');
+    inp.style.width=Math.ceil(Math.max(...lines.map(l=>meas.measureText(l||' ').width)))+6+'px';
+    inp.style.height=(lines.length*lineH)+'px'; };
   fit(); inp.addEventListener('input', fit);
   let done=false;
   const finish=(keep)=>{
     if(done) return; done=true;
     finishTextEdit=null;
-    const t=inp.value.trim();
+    const t=inp.value.trim();   /* trims ends, keeps interior line breaks */
     if(keep && t) s.text=t;
     if(isNew && !s.text){ /* empty new box discarded, so a stray click leaves nothing */
       const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1);
@@ -2001,7 +2006,7 @@ function editTextInline(s, isNew, initialValue){
   };
   finishTextEdit=finish;
   inp.addEventListener('keydown',ev=>{
-    if(ev.key==='Enter'){ ev.preventDefault(); finish(true); }
+    if(ev.key==='Enter' && !ev.shiftKey){ ev.preventDefault(); finish(true); }  /* Enter commits; Shift+Enter = new line */
     else if(ev.key==='Escape'){ ev.preventDefault(); finish(false); }
   });
   /* Focus AFTER the opening click settles — focusing during pointerdown gets
@@ -2299,10 +2304,13 @@ function paint(c, W, H, shapes, extra){
     else if(s.tool==='text'){
       c.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
       c.textAlign='left'; c.textBaseline='middle';
-      const w=c.measureText(s.text).width;
+      const lines=(s.text||'').split('\n'), lh=22*scale;
+      const w=Math.max(0,...lines.map(l=>c.measureText(l).width));
+      const x=s.a.x*W, y=s.a.y*H;
       c.shadowBlur=0; c.fillStyle='rgba(6,13,10,.82)';
-      c.fillRect(s.a.x*W-6*scale, s.a.y*H-14*scale, w+12*scale, 28*scale);
-      c.fillStyle=col; c.fillText(s.text, s.a.x*W, s.a.y*H);
+      c.fillRect(x-6*scale, y-14*scale, w+12*scale, (lines.length-1)*lh + 28*scale);
+      c.fillStyle=col;
+      lines.forEach((l,i)=> c.fillText(l, x, y + i*lh));
     }
     c.restore();
   });
