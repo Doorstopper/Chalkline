@@ -3332,6 +3332,10 @@ function download(blob,name){
 /* ============================================================
    KEYS
    ============================================================ */
+/* Arrow-key nudging fires a burst of small moves; collapse them into ONE undo
+   entry / save by committing shortly after the last press. */
+let nudgeCommitT=null;
+function nudgeCommitSoon(){ clearTimeout(nudgeCommitT); nudgeCommitT=setTimeout(()=>{ nudgeCommitT=null; commit(); }, 260); }
 document.addEventListener('keydown',e=>{
   if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if(!$('#studio').classList.contains('on')) return;
@@ -3374,6 +3378,28 @@ document.addEventListener('keydown',e=>{
   if(t){ tool = (tool===t.id ? null : t.id); renderTools(); return; }
   const ti=TAGKEYS.indexOf(e.key.toLowerCase());
   if(ti>-1 && ti<S.pads.length){ e.preventDefault(); tagNow(ti); return; }
+  /* With a ground ring selected, the arrow keys nudge it (and anything selected
+     with it) for fine positioning — a few px per press, Shift for bigger steps.
+     With no ring selected they keep their normal frame-step behaviour. */
+  if((e.key==='ArrowLeft'||e.key==='ArrowRight'||e.key==='ArrowUp'||e.key==='ArrowDown')
+     && curClip && selection.some(s=>s.tool==='ground')){
+    e.preventDefault();
+    const sp=e.shiftKey?20:6, cl=v=>Math.max(0,Math.min(1,v));
+    let dx=0, dy=0;
+    if(e.key==='ArrowLeft') dx=-sp/draw.width;
+    else if(e.key==='ArrowRight') dx=sp/draw.width;
+    else if(e.key==='ArrowUp') dy=-sp/draw.height;
+    else dy=sp/draw.height;
+    selection.forEach(s=>{
+      if(s.tool==='ground'){ const ctr=groundCenter(s,vid.currentTime); upsertKf(s, vid.currentTime, cl(ctr.x+dx), cl(ctr.y+dy)); }
+      else { if(s.a) s.a={x:cl(s.a.x+dx),y:cl(s.a.y+dy)};
+             if(s.b) s.b={x:cl(s.b.x+dx),y:cl(s.b.y+dy)};
+             if(s.c) s.c={x:cl(s.c.x+dx),y:cl(s.c.y+dy)};
+             if(s.pts) s.pts=s.pts.map(q=>({x:cl(q.x+dx),y:cl(q.y+dy)})); }
+    });
+    render(); nudgeCommitSoon();
+    return;
+  }
   if(e.key===' '){ e.preventDefault(); togglePlay(); }
   else if(e.key==='ArrowLeft'){ e.preventDefault(); vid.pause(); vid.currentTime-=1/fps; render(); }
   else if(e.key==='ArrowRight'){ e.preventDefault(); vid.pause(); vid.currentTime+=1/fps; render(); }
