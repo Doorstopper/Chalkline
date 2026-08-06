@@ -1730,7 +1730,7 @@ document.querySelector('.canvaswrap').addEventListener('wheel', e=>{
 
 /* ---- Loupe ---- */
 let loupeOn=false, loupePt=null, loupeVid=null, loupeCv=null, loupeBox=null;
-const LOUPE_R=92, LOUPE_MAG=2.6;
+const LOUPE_R=124, LOUPE_MAG=2.6;
 function ensureLoupe(){
   if(loupeBox) return;
   const wrap=document.querySelector('.canvaswrap');
@@ -1977,6 +1977,17 @@ function shapeBBox(s){
   if(!pts.length) return null;
   const xs=pts.map(q=>q.x), ys=pts.map(q=>q.y);
   return {x0:Math.min(...xs),y0:Math.min(...ys),x1:Math.max(...xs),y1:Math.max(...ys)};
+}
+/* the point where a mark's move grip sits — its natural centre, used both to draw
+   the grip and to hit-test it */
+function shapeCenter(s){
+  if(!s) return null;
+  if(s.tool==='ground') return (s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
+  if(s.tool==='wedge'&&s.b&&s.c) return {x:(s.a.x+s.b.x+s.c.x)/3, y:(s.a.y+s.b.y+s.c.y)/3};
+  if(s.pts&&s.pts.length){ let x=0,y=0; s.pts.forEach(p=>{x+=p.x;y+=p.y;}); return {x:x/s.pts.length,y:y/s.pts.length}; }
+  if(s.tool==='disc'||s.tool==='text'||s.tool==='spot') return s.a;
+  if(s.a&&s.b) return {x:(s.a.x+s.b.x)/2, y:(s.a.y+s.b.y)/2};
+  return s.a||null;
 }
 function pt(e){
   const r=draw.getBoundingClientRect();
@@ -2437,13 +2448,13 @@ function onBody(p,s,tb){
 function pickHandle(p){
   const te=0.03, tb=0.03, shapes=curClip.shapes;
   const W=draw.width, H=draw.height, hscale=Math.max(1,W/900), grabPx=14*hscale;
-  /* A ground ring's centre is a dedicated MOVE grip, tested before every other
-     mark so it stays grabbable even when other markups sit on top of it — and it
-     only ever moves the ring, never resizes it. */
-  for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
-    if(s.tool!=='ground') continue;
-    const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a;
-    if(ctr && Math.hypot((p.x-ctr.x)*W,(p.y-ctr.y)*H) < grabPx) return {s,mode:'gmove'};
+  /* Centre grip: a dedicated MOVE grab on every mark, tested before all fine
+     handles so any mark stays grabbable even when others sit on top of it, and
+     never resizes by accident. Active while PAUSED — i.e. when you're editing —
+     so normal playback clicks are unaffected. */
+  if(vid.paused) for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
+    const c=shapeCenter(s);
+    if(c && Math.hypot((p.x-c.x)*W,(p.y-c.y)*H) < grabPx) return {s, mode: s.tool==='ground'?'gmove':'move'};
   }
   for(let i=shapes.length-1;i>=0;i--){
     const s=shapes[i];
@@ -2559,18 +2570,18 @@ function render(){
   /* Feed the loupe the CLEAN marks (video + telestration) before any editing chrome
      — grip, handles, marquee — so none of that gets magnified inside the glass. */
   if(loupeOn && typeof refreshLoupe==='function') refreshLoupe();
-  /* Move grip on each ground ring — only while PAUSED (i.e. when you're placing the
-     circle), so normal playback stays clean. Live canvas only, so exports are clean too. */
+  /* Move grip on every mark — only while PAUSED (i.e. when you're editing), so
+     normal playback stays clean. Live canvas only, so exports are clean too. */
   if(!marksHidden && curClip && vid.paused){
-    const W=draw.width,H=draw.height,scale=Math.max(1,W/900),g=11*scale;
-    shapes.filter(s=>s.tool==='ground').forEach(s=>{
-      const ctr=(s.kf&&s.kf.length)?groundCenter(s,vid.currentTime):s.a; if(!ctr) return;
-      const x=ctr.x*W, y=ctr.y*H;
+    const W=draw.width,H=draw.height,scale=Math.max(1,W/900);
+    shapes.forEach(s=>{
+      const c=shapeCenter(s); if(!c) return;
+      const g=(s.tool==='ground'?11:9)*scale, x=c.x*W, y=c.y*H;
       ctx.save();
       ctx.beginPath(); ctx.arc(x,y,g,0,7);
-      ctx.fillStyle='rgba(6,12,9,.6)'; ctx.fill();
-      ctx.lineWidth=2*scale; ctx.strokeStyle='rgba(255,255,255,.95)'; ctx.stroke();
-      ctx.lineWidth=1.6*scale; const a=g*0.55;   /* move crosshair */
+      ctx.fillStyle='rgba(6,12,9,.55)'; ctx.fill();
+      ctx.lineWidth=2*scale; ctx.strokeStyle='rgba(255,255,255,.9)'; ctx.stroke();
+      ctx.lineWidth=1.5*scale; const a=g*0.55;   /* move crosshair */
       ctx.beginPath(); ctx.moveTo(x-a,y); ctx.lineTo(x+a,y); ctx.moveTo(x,y-a); ctx.lineTo(x,y+a); ctx.stroke();
       ctx.restore();
     });
