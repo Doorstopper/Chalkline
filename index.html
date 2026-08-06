@@ -175,6 +175,12 @@ button{cursor:pointer;border:none;background:none}
 #vidbox{position:relative;line-height:0;max-width:100%;max-height:100%;display:flex;min-height:0}
 #vid{max-width:100%;max-height:100%;width:auto;height:auto;display:block;background:#000;object-fit:contain}
 #draw{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+.chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:5px}
+.chips:empty{display:none}
+.chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,158,255,.16);color:#cfe6ff;
+  border:1px solid rgba(59,158,255,.4);border-radius:12px;padding:2px 6px 2px 9px;font-size:12px;font-weight:600}
+.chip button{all:unset;cursor:pointer;font-size:14px;line-height:1;color:#9fc4ff;padding:0 2px}
+.chip button:hover{color:#fff}
 #draw.panning{cursor:grab}
 #draw.panning:active{cursor:grabbing}
 #draw.loupe-cursor{cursor:zoom-in}
@@ -594,8 +600,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           </div>
         </label>
 
-        <label class="field"><span class="eyebrow">Player</span>
-          <input type="text" list="playernames" id="clipplayer" placeholder="Team (no one)" disabled>
+        <label class="field"><span class="eyebrow">Players</span>
+          <div id="clipplayers" class="chips"></div>
+          <input type="text" list="playernames" id="clipplayerinp" placeholder="Add a player, press Enter" disabled>
         </label>
 
         <div class="pairs">
@@ -1427,16 +1434,28 @@ function clipStart(m){ return Math.max(0, m.t + (+S.offset||0) - m.pre); }
 function clipEnd(m){ return m.t + (+S.offset||0) + m.post; }
 
 /* ---------- player tagging + filtering ---------- */
-function playerOf(m){ return (m.player||'').trim(); }
+/* a clip can be tagged with several players; read them from the array, falling
+   back to the old single `player` string for clips saved before this change */
+function playersOf(m){
+  if(Array.isArray(m.players)) return m.players.map(x=>(x||'').trim()).filter(Boolean);
+  const p=(m.player||'').trim(); return p?[p]:[];
+}
+function playerOf(m){ return playersOf(m)[0]||''; }   /* first, for compact displays */
+function setClipPlayers(m, arr){
+  const seen=new Map();
+  arr.map(x=>(x||'').trim()).filter(Boolean).forEach(n=>{ if(!seen.has(n.toLowerCase())) seen.set(n.toLowerCase(),n); });
+  m.players=[...seen.values()]; delete m.player;
+}
 function clipInScope(m){
   if(filterPlayer==='__all')  return true;
-  if(filterPlayer==='__none') return !playerOf(m);
-  return playerOf(m).toLowerCase()===filterPlayer.toLowerCase();
+  const ps=playersOf(m);
+  if(filterPlayer==='__none') return ps.length===0;
+  return ps.some(n=>n.toLowerCase()===filterPlayer.toLowerCase());   /* any clip that includes them */
 }
 /* distinct player names in use, case-insensitive, first-seen casing kept */
 function playerNames(){
   const seen=new Map();
-  S.marks.forEach(m=>{ const n=playerOf(m); if(n && !seen.has(n.toLowerCase())) seen.set(n.toLowerCase(),n); });
+  S.marks.forEach(m=> playersOf(m).forEach(n=>{ if(!seen.has(n.toLowerCase())) seen.set(n.toLowerCase(),n); }));
   const dp=(S.defaultPlayer||'').trim();
   if(dp && !seen.has(dp.toLowerCase())) seen.set(dp.toLowerCase(),dp);
   return [...seen.values()].sort((a,b)=>a.localeCompare(b));
@@ -1448,7 +1467,7 @@ function refreshPlayerUI(){
   if(dl) dl.innerHTML=names.map(n=>`<option value="${esc(n)}">`).join('');
   const sel=$('#playerfilter');
   if(sel){
-    const anyTeam=S.marks.some(m=>!playerOf(m));
+    const anyTeam=S.marks.some(m=>!playersOf(m).length);
     const prev=filterPlayer;
     let html='<option value="__all">All clips</option>';
     names.forEach(n=>{ html+=`<option value="${esc(n)}">${esc(n)}</option>`; });
@@ -1490,7 +1509,7 @@ function renderClips(){
     b.style.borderLeftColor = COLORS[m.color]?.hex;
     b.setAttribute('aria-current', curClip && curClip.id===m.id);
     const dur = Math.round(clipEnd(m)-clipStart(m));
-    const who = playerOf(m);
+    const who = playersOf(m).join(', ');
     b.innerHTML = `<div class="t">${fmtClock(clipStart(m))} · ${dur}s${m.shapes.length?' · '+m.shapes.length+' drawn':''}</div>
       <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}${m.kind?`<span style="margin-left:6px;font-size:10px;font-weight:700;color:${m.kind==='highlight'?'#FFC93C':'#8FC4FF'}">${m.kind==='highlight'?'★ HL':'🎓 LRN'}</span>`:''}</div>
       ${who?`<div class="who">${esc(who)}</div>`:''}
@@ -1525,7 +1544,7 @@ function selectClip(m){
   resetUndo();
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
-  const cp=$('#clipplayer'); cp.disabled=false; cp.value = m.player || '';
+  $('#clipplayerinp').disabled=false; renderClipPlayers();
   $('#askprompt').textContent = m.ask || 'Ask them what they saw before you tell them what you saw.';
   const rc=$('#recat'); rc.disabled=false; rc.innerHTML='';
   S.pads.forEach((p,i)=>{
@@ -1582,7 +1601,28 @@ $('#kindhi').addEventListener('click',()=>setKind('highlight'));
 $('#kindlearn').addEventListener('click',()=>setKind('learning'));
 
 /* player tagging: per-clip, the default for new clips, and the list/export filter */
-$('#clipplayer').addEventListener('input',()=>{ if(curClip){ curClip.player=$('#clipplayer').value.trim(); touch(curClip); renderClips(); save(); }});
+/* multi-player chips: type a name + Enter (or comma) to add, × to remove */
+function renderClipPlayers(){
+  const box=$('#clipplayers'); if(!box) return;
+  const players = curClip ? playersOf(curClip) : [];
+  box.innerHTML = players.map(n=>
+    `<span class="chip">${esc(n)}<button type="button" data-rm="${esc(n)}" aria-label="Remove ${esc(n)}">×</button></span>`).join('');
+  box.querySelectorAll('[data-rm]').forEach(b=> b.addEventListener('click',()=>removeClipPlayer(b.dataset.rm)));
+}
+function addClipPlayer(name){
+  name=(name||'').trim(); if(!curClip || !name) return;
+  setClipPlayers(curClip, [...playersOf(curClip), name]);
+  touch(curClip); renderClipPlayers(); renderClips(); refreshPlayerUI(); save();
+}
+function removeClipPlayer(name){
+  if(!curClip) return;
+  setClipPlayers(curClip, playersOf(curClip).filter(n=>n.toLowerCase()!==name.toLowerCase()));
+  touch(curClip); renderClipPlayers(); renderClips(); refreshPlayerUI(); save();
+}
+$('#clipplayerinp').addEventListener('keydown',e=>{
+  if(e.key==='Enter' || e.key===','){ e.preventDefault(); addClipPlayer(e.target.value); e.target.value=''; }
+});
+$('#clipplayerinp').addEventListener('blur',e=>{ if(e.target.value.trim()){ addClipPlayer(e.target.value); e.target.value=''; } });
 $('#defplayer').addEventListener('input',()=>{ S.defaultPlayer=$('#defplayer').value.trim(); refreshPlayerUI(); save(); });
 $('#playerfilter').addEventListener('change',()=>{ filterPlayer=$('#playerfilter').value; renderClips(); });
 function updateCap(){
@@ -3527,12 +3567,11 @@ $('#exportall').addEventListener('click',()=>{
    non-empty groups, each sorted by match time. Used by the batch ffmpeg export. */
 function exportGroups(){
   const g=new Map();
-  S.marks.forEach(m=>{
-    const who=playerOf(m);
-    const key=who ? who.toLowerCase() : '__team';
-    if(!g.has(key)) g.set(key,{name: who||'Team', prefix: safe(who||'team')||'team', marks:[]});
-    g.get(key).marks.push(m);
-  });
+  const add=(who,m)=>{ const key=who?who.toLowerCase():'__team';
+    if(!g.has(key)) g.set(key,{name:who||'Team', prefix:safe(who||'team')||'team', marks:[]});
+    g.get(key).marks.push(m); };
+  /* a clip tagged with several players appears in each of their groups */
+  S.marks.forEach(m=>{ const ps=playersOf(m); if(ps.length) ps.forEach(w=>add(w,m)); else add('',m); });
   return [...g.values()].map(x=>({...x, marks:x.marks.sort((a,b)=>a.t-b.t)}));
 }
 
