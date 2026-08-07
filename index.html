@@ -2081,7 +2081,8 @@ const TOOLS = [
   {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
   {id:'pen',   name:'Pen',       key:'7', icon:'<path d="M3 20c4-1 5-9 9-9s4 6 9 4"/>'},
   {id:'disc',  name:'Marker',    key:'8', icon:'<circle cx="12" cy="12" r="8"/><path d="M12 9v6M9 12h6"/>'},
-  {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'}
+  {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'},
+  {id:'callout',name:'Callout',  key:'',  icon:'<rect x="2.5" y="4" width="11" height="8" rx="1.5"/><path d="M13 12l7.5 7.5"/><path d="M21 20v-4.5M21 20h-4.5"/>'}
 ];
 let tool='spot', color='ours', discN=1;
 
@@ -2100,7 +2101,12 @@ function renderTools(){
     const b=document.createElement('button');
     b.className='sw'; b.setAttribute('aria-pressed', k===color);
     b.innerHTML=`<i style="background:${COLORS[k].hex}"></i><span>${COLORS[k].name}</span>`;
-    b.addEventListener('click',()=>{ color=k; renderTools(); });
+    b.addEventListener('click',()=>{
+      color=k;
+      /* if marks are selected, recolour them too (not just set the colour for new marks) */
+      if(curClip && selection.length){ selection.forEach(s=>{ s.color=k; }); commit(); }
+      renderTools();
+    });
     sw.appendChild(b);
   });
   render();
@@ -2217,7 +2223,9 @@ draw.addEventListener('pointerup', ()=>{
   const tiny = d.tool==='pen' ? d.pts.length<3
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
-  if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit(); } else render();
+  if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit();
+    if(d.tool==='callout'){ d.text=d.text||''; editTextInline(d, true); }   /* type the label right away */
+  } else render();
 });
 /* double-click finishes the Connect line. The two clicks of the double-click each
    added the end point, so drop the duplicate before committing. */
@@ -2309,7 +2317,7 @@ function textHitsAt(p){
   if(!curClip) return null;
   for(let i=curClip.shapes.length-1;i>=0;i--){
     const s=curClip.shapes[i];
-    if((s.tool==='text'||s.tool==='disc') && textBoxHit(p,s)) return s;
+    if((s.tool==='text'||s.tool==='disc'||s.tool==='callout') && textBoxHit(p,s)) return s;
   }
   return null;
 }
@@ -2369,7 +2377,7 @@ function editTextInline(s, isNew, initialValue){
     finishTextEdit=null;
     const t=inp.value.trim();   /* trims ends, keeps interior line breaks */
     if(keep && t){ s.text=t;
-      if(s.tool==='text'){   /* keep the whole box on screen — only nudges if it would run off */
+      if(s.tool==='text'||s.tool==='callout'){   /* keep the whole box on screen — only nudges if it would run off */
         const Wc=draw.width,Hc=draw.height,sc=Math.max(1,Wc/900);
         const mc=(editTextInline._mc||(editTextInline._mc=document.createElement('canvas').getContext('2d')));
         const m=textMetrics(s, mc, Wc, sc);
@@ -2380,7 +2388,7 @@ function editTextInline(s, isNew, initialValue){
         s.a={x:ax/Wc, y:ay/Hc};
       }
     }
-    if(isNew && !s.text){ /* empty new box discarded, so a stray click leaves nothing */
+    if(isNew && !s.text && s.tool!=='callout'){ /* empty new box discarded, so a stray click leaves nothing */
       const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1);
       if(isSel(s)) selection.splice(selection.indexOf(s),1);
     } else if(isNew && s.tool==='disc'){ discN=(+s.text||discN)+1; }
@@ -2639,6 +2647,7 @@ function onBody(p,s,tb){
     return false;
   }
   if(s.tool==='disc'||s.tool==='text'){ return textBoxHit(p,s); }
+  if(s.tool==='callout'){ return textBoxHit(p,s) || segDistPx(p,s.a,s.b) < tolPx; }
   if(s.tool==='zone'){
     const x0=Math.min(s.a.x,s.b.x),x1=Math.max(s.a.x,s.b.x),y0=Math.min(s.a.y,s.b.y),y1=Math.max(s.a.y,s.b.y);
     return p.x>=x0-tb && p.x<=x1+tb && p.y>=y0-tb && p.y<=y1+tb;
@@ -2983,6 +2992,18 @@ function paint(c, W, H, shapes, extra){
       c.fillStyle=col;
       lines.forEach((l,i)=> c.fillText(l, x, y + i*lh));
     }
+    else if(s.tool==='callout'){   /* a label at s.a with a leader arrow to the target s.b */
+      c.textAlign='left'; c.textBaseline='middle';
+      const m=textMetrics(s,c,W,scale), lines=m.lines, lh=m.lh, tw=m.boxW;
+      const x=s.a.x*W, y=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+      const boxX=x-6*scale, boxY=y-14*scale, boxW=tw+12*scale, boxH=(lines.length-1)*lh+28*scale;
+      const [ex,ey]=boxEdgePoint(boxX+boxW/2, boxY+boxH/2, boxW/2, boxH/2, bx, by);
+      line(c, ex,ey, bx,by);                    /* leader from the box edge to the target */
+      head(c, ex,ey, bx,by, scale);
+      c.shadowBlur=0; c.fillStyle='rgba(6,13,10,.82)'; c.fillRect(boxX,boxY,boxW,boxH);
+      c.fillStyle=col;
+      lines.forEach((l,i)=> c.fillText(l, x, y + i*lh));
+    }
     c.restore();
   });
 }
@@ -3008,6 +3029,13 @@ function taperedCurve(c, ax,ay, cx,cy, bx,by, wStart, wEnd){
   c.closePath(); c.fill();
 }
 function line(c,x1,y1,x2,y2){ c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
+/* the point on a box's edge (centre cx,cy, half-size hw,hh) in the direction of a
+   target — where a callout's leader line should start so it doesn't cross the text */
+function boxEdgePoint(cx,cy,hw,hh,tx,ty){
+  const dx=tx-cx, dy=ty-cy; if(!dx && !dy) return [cx,cy];
+  const s=Math.min(dx?hw/Math.abs(dx):Infinity, dy?hh/Math.abs(dy):Infinity);
+  return [cx+dx*s, cy+dy*s];
+}
 function head(c,x1,y1,x2,y2,scale){
   const a=Math.atan2(y2-y1,x2-x1), L=15*scale;
   c.beginPath(); c.moveTo(x2,y2);
