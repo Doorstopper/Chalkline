@@ -2085,6 +2085,7 @@ const TOOLS = [
   {id:'curve', name:'Curve',     key:'5', icon:'<path d="M3 19C7 6 16 4 21 6"/><path d="M15 3l6 3-3 6"/>'},
   {id:'zone',  name:'Space',     key:'6', icon:'<path d="M4 8h16v8H4z"/><path d="M4 12h16" stroke-dasharray="3 3"/>'},
   {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
+  {id:'scan',  name:'Scan',      key:'',  icon:'<path d="M12 5 L5 20 L19 20 Z"/><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/>'},
   {id:'pen',   name:'Pen',       key:'7', icon:'<path d="M3 20c4-1 5-9 9-9s4 6 9 4"/>'},
   {id:'disc',  name:'Marker',    key:'8', icon:'<circle cx="12" cy="12" r="8"/><path d="M12 9v6M9 12h6"/>'},
   {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'},
@@ -2649,6 +2650,8 @@ function onBody(p,s,tb){
   }
   const scale=Math.max(1,draw.width/900), tolPx=Math.max(16, 10*scale);
   if(s.tool==='wedge'){ return s.b && s.c && pointInTri(p, s.a, s.b, s.c); }
+  if(s.tool==='scan'){ const W=draw.width,H=draw.height,[A,B,C]=scanTri(s,W,H);
+    return pointInTri({x:p.x*W,y:p.y*H}, A,B,C); }
   if(s.tool==='pen'||s.tool==='chain'){
     if(!s.pts) return false;
     for(let i=1;i<s.pts.length;i++) if(segDistPx(p,s.pts[i-1],s.pts[i])<tolPx) return true;
@@ -2952,6 +2955,17 @@ function paint(c, W, H, shapes, extra){
       c.fillStyle=hexA(col,.22); c.fill();
       c.setLineDash([9*scale,7*scale]); c.lineWidth=lw*.7; c.stroke(); c.setLineDash([]);
     }
+    else if(s.tool==='scan'){   /* torch/vision cone from the eyes, fading with distance */
+      const [A,B,C]=scanTri(s,W,H);
+      c.shadowBlur=0;
+      const g=c.createLinearGradient(A.x,A.y,(B.x+C.x)/2,(B.y+C.y)/2);
+      g.addColorStop(0,hexA(col,.55)); g.addColorStop(.55,hexA(col,.22)); g.addColorStop(1,hexA(col,0));
+      c.beginPath(); c.moveTo(A.x,A.y); c.lineTo(B.x,B.y); c.lineTo(C.x,C.y); c.closePath();
+      c.fillStyle=g; c.fill();
+      c.strokeStyle=hexA(col,.5); c.lineWidth=lw*.5;
+      c.beginPath(); c.moveTo(A.x,A.y); c.lineTo(B.x,B.y); c.moveTo(A.x,A.y); c.lineTo(C.x,C.y); c.stroke();
+      c.fillStyle=hexA(col,.95); c.beginPath(); c.arc(A.x,A.y,lw*.9,0,7); c.fill();   /* the eyes */
+    }
     else if(s.tool==='pen'){
       c.beginPath();
       s.pts.forEach((p,i)=> i? c.lineTo(p.x*W,p.y*H) : c.moveTo(p.x*W,p.y*H));
@@ -3063,6 +3077,13 @@ function zonePts(s){
   if(s.pts && s.pts.length===4) return s.pts;
   const x0=Math.min(s.a.x,s.b.x), x1=Math.max(s.a.x,s.b.x), y0=Math.min(s.a.y,s.b.y), y1=Math.max(s.a.y,s.b.y);
   return [{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}];
+}
+/* the three px corners of a Scan cone: apex (eyes) at a, spreading to a wide base
+   at b. The half-width grows with the beam length, giving a torch-like fan. */
+function scanTri(s,W,H){
+  const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+  const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, nx=-uy, ny=ux, hw=L*0.42;
+  return [{x:ax,y:ay}, {x:bx+nx*hw, y:by+ny*hw}, {x:bx-nx*hw, y:by-ny*hw}];
 }
 function boxEdgePoint(cx,cy,hw,hh,tx,ty){
   const dx=tx-cx, dy=ty-cy; if(!dx && !dy) return [cx,cy];
