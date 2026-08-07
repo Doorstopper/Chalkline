@@ -2085,7 +2085,7 @@ const TOOLS = [
   {id:'curve', name:'Curve',     key:'5', icon:'<path d="M3 19C7 6 16 4 21 6"/><path d="M15 3l6 3-3 6"/>'},
   {id:'zone',  name:'Space',     key:'6', icon:'<path d="M4 8h16v8H4z"/><path d="M4 12h16" stroke-dasharray="3 3"/>'},
   {id:'wedge', name:'Lane',      key:'l', icon:'<path d="M12 4 L5 20 H19 Z"/>'},
-  {id:'scan',  name:'Scan',      key:'',  icon:'<path d="M12 5 L5 20 L19 20 Z"/><circle cx="12" cy="5" r="1.4" fill="currentColor" stroke="none"/>'},
+  {id:'scan',  name:'Scan',      key:'',  icon:'<path d="M12 15 L5 4 L19 4 Z"/><path d="M8 19 Q12 16.5 16 19 Q12 21.5 8 19 Z"/><circle cx="12" cy="19" r="1.1" fill="currentColor" stroke="none"/>'},
   {id:'pen',   name:'Pen',       key:'7', icon:'<path d="M3 20c4-1 5-9 9-9s4 6 9 4"/>'},
   {id:'disc',  name:'Marker',    key:'8', icon:'<circle cx="12" cy="12" r="8"/><path d="M12 9v6M9 12h6"/>'},
   {id:'text',  name:'Text',      key:'9', icon:'<path d="M4 6h16M12 6v13"/>'},
@@ -2712,6 +2712,10 @@ function pickHandle(p){
       const P=zonePts(s);
       for(let k=0;k<4;k++) if(dist(p,P[k])<te) return {s,mode:'zcorner',idx:k};
     }
+    if(s.tool==='scan'){   /* a base corner widens/narrows the cone */
+      const [,B]=scanTri(s,W,H);
+      if(dist(p,{x:B.x/W,y:B.y/H})<te) return {s,mode:'scanw'};
+    }
     if(s.c && dist(p,s.c)<te) return {s,mode:'c'};
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
@@ -2753,14 +2757,17 @@ function applyMove(p){
   if(mode==='gradius'){ const s=moving.gs, ctr=groundCenter(s,vid.currentTime);
     s.r=Math.max(0.01, Math.hypot((p.x-ctr.x)*draw.width,(p.y-ctr.y)*draw.height)/draw.width); moving.moved=true; render(); return; }
   if(mode==='move'){
+    /* a callout's arrowhead (b) is anchored to what it points at, so moving the
+       box only moves the text end (a); drag the arrowhead dot to re-aim it */
+    const movesB=o=> o.s.tool!=='callout';
     const xs=[], ys=[];
-    moving.items.forEach(o=>{ [o.a,o.b,o.c].forEach(q=>{ if(q){xs.push(q.x);ys.push(q.y);} });
+    moving.items.forEach(o=>{ [o.a, movesB(o)?o.b:null, o.c].forEach(q=>{ if(q){xs.push(q.x);ys.push(q.y);} });
       if(o.pts) o.pts.forEach(q=>{xs.push(q.x);ys.push(q.y);}); });
     dx=Math.max(-Math.min(...xs), Math.min(1-Math.max(...xs), dx));
     dy=Math.max(-Math.min(...ys), Math.min(1-Math.max(...ys), dy));
     moving.items.forEach(o=>{ const s=o.s;
       if(o.a) s.a={x:o.a.x+dx,y:o.a.y+dy};
-      if(o.b) s.b={x:o.b.x+dx,y:o.b.y+dy};
+      if(o.b && movesB(o)) s.b={x:o.b.x+dx,y:o.b.y+dy};
       if(o.c) s.c={x:o.c.x+dx,y:o.c.y+dy};
       if(o.pts) s.pts=o.pts.map(q=>({x:q.x+dx,y:q.y+dy}));
     });
@@ -2783,6 +2790,12 @@ function applyMove(p){
     else if(mode==='zcorner'){   /* push/pull one corner of the Space quad */
       const i=moving.idx;
       s.pts=o.pts.map((q,k)=> k===i ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q});
+    }
+    else if(mode==='scanw'){   /* drag a base corner to set the cone's half-width */
+      const W=draw.width,H=draw.height, ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
+      const vx=bx-ax,vy=by-ay,L=Math.hypot(vx,vy)||1,nx=-vy/L,ny=vx/L;
+      const proj=(p.x*W-bx)*nx+(p.y*H-by)*ny;   /* perpendicular offset from the base centre */
+      s.spread=Math.max(0.06, Math.min(2, Math.abs(proj)/L));
     }
   }
   moving.moved=true; render();
@@ -2809,6 +2822,7 @@ function drawHandles(s){
     dotPx(mx-dy*fb, my+dx*fb); }
   else if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
   else if(s.tool==='zone'){ zonePts(s).forEach(q=>dot(q)); }   /* a dot on each corner */
+  else if(s.tool==='scan'){ dot(s.a); dot(s.b); const [,B]=scanTri(s,W,H); dotPx(B.x,B.y); }   /* eyes, reach, width */
   else if(s.tool==='text'){   /* right-edge handle to resize the box (drag → text wraps) */
     const mc=(drawHandles._mc||(drawHandles._mc=document.createElement('canvas').getContext('2d')));
     const m=textMetrics(s,mc,W,scale);
@@ -3092,7 +3106,8 @@ function zonePts(s){
    at b. The half-width grows with the beam length, giving a torch-like fan. */
 function scanTri(s,W,H){
   const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
-  const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, nx=-uy, ny=ux, hw=L*0.42;
+  const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, nx=-uy, ny=ux;
+  const hw=L*(s.spread!=null?s.spread:0.42);
   return [{x:ax,y:ay}, {x:bx+nx*hw, y:by+ny*hw}, {x:bx-nx*hw, y:by-ny*hw}];
 }
 function boxEdgePoint(cx,cy,hw,hh,tx,ty){
