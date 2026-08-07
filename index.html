@@ -2005,8 +2005,13 @@ function updateTC(){
       for(const s of curClip.shapes){ const t=s.t; if(t==null||s.tool==='ground') continue;
         if(now>=t && now<t+0.6 && !liveFrozeSet.has(Math.round(t*10)) && (hit==null||t<hit)) hit=t; }
       if(hit!=null){ liveFrozeSet.add(Math.round(hit*10)); vid.pause();
+        /* timeupdate fires a few times a second, so we cross the beat and pause a
+           little past it — snap back to the exact marked frame so the frozen frame
+           is the one you marked, and freeze-only marks stay up for the whole hold. */
+        if(Math.abs(vid.currentTime-hit)>0.02){ vid.currentTime=hit; }
         clearTimeout(liveHoldT);
         liveHoldT=setTimeout(()=>{ liveHoldT=null; if(!exporting && curClip && vid.paused) vid.play().catch(()=>{}); }, h*1000);
+        render();
       }
     }
   }
@@ -2607,7 +2612,7 @@ function shapeAlphaAt(s,t,hold,burnAll){
   if(s.tool==='ground'&&s.kf&&s.kf.length) return t>=s.kf[0].t-0.1 ? 1 : 0;
   if(s.t==null) return 0;
   const L=s.linger;
-  if(L===0) return (t>=s.t-0.05 && t<=s.t+0.12) ? 1 : 0;   /* freeze only */
+  if(L===0) return (t>=s.t-0.1 && t<=s.t+0.15) ? 1 : 0;   /* freeze only */
   const winEnd=s.t+Math.max(L>0?L:hold, 0.1);
   if(t<s.t-0.05 || t>winEnd) return 0;
   if(L>0){ const fade=0.5; if(t>winEnd-fade) return Math.max(0,(winEnd-t)/fade); }
