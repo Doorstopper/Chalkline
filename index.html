@@ -1721,11 +1721,11 @@ function watchFrameRate(){
   };
   vid.requestVideoFrameCallback(tick);
 }
-vid.addEventListener('play', ()=>{ $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); });
+vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); });
 vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); });
 vid.addEventListener('timeupdate', updateTC);
 /* re-arm the live freeze whenever we move back before the marked frame */
-vid.addEventListener('seeked',()=>{ if(!curClip) return;
+vid.addEventListener('seeked',()=>{ liveFrozeAt=null; if(!curClip) return;
   for(const s of curClip.shapes){ if(s.t!=null && vid.currentTime < s.t-0.1) liveFrozeSet.delete(Math.round(s.t*10)); } });
 
 /* Frame step: nudge one frame. If the clip was playing, resume at the same speed
@@ -1987,6 +1987,9 @@ function customTag(){
 
 let exporting = false, loopArmed = false;
 let autoFreeze = true, liveFrozeSet = new Set(), liveHoldT = null;
+/* the beat currently held by a live freeze (null when playing) — lets freeze-only
+   marks stay visible for the whole hold without moving the video */
+let liveFrozeAt = null;
 /* Watch the clip with or without the telestration overlay. Hiding never touches
    curClip.shapes, so the marks come straight back when toggled on again. */
 let marksHidden = false;
@@ -2004,11 +2007,7 @@ function updateTC(){
       const now=vid.currentTime; let hit=null;
       for(const s of curClip.shapes){ const t=s.t; if(t==null||s.tool==='ground') continue;
         if(now>=t && now<t+0.6 && !liveFrozeSet.has(Math.round(t*10)) && (hit==null||t<hit)) hit=t; }
-      if(hit!=null){ liveFrozeSet.add(Math.round(hit*10)); vid.pause();
-        /* timeupdate fires a few times a second, so we cross the beat and pause a
-           little past it — snap back to the exact marked frame so the frozen frame
-           is the one you marked, and freeze-only marks stay up for the whole hold. */
-        if(Math.abs(vid.currentTime-hit)>0.02){ vid.currentTime=hit; }
+      if(hit!=null){ liveFrozeSet.add(Math.round(hit*10)); liveFrozeAt=hit; vid.pause();
         clearTimeout(liveHoldT);
         liveHoldT=setTimeout(()=>{ liveHoldT=null; if(!exporting && curClip && vid.paused) vid.play().catch(()=>{}); }, h*1000);
         render();
@@ -2612,7 +2611,10 @@ function shapeAlphaAt(s,t,hold,burnAll){
   if(s.tool==='ground'&&s.kf&&s.kf.length) return t>=s.kf[0].t-0.1 ? 1 : 0;
   if(s.t==null) return 0;
   const L=s.linger;
-  if(L===0) return (t>=s.t-0.1 && t<=s.t+0.15) ? 1 : 0;   /* freeze only */
+  if(L===0){   /* freeze only: on the marked frame, or held for the whole live freeze */
+    if(typeof liveFrozeAt==='number' && Math.abs(liveFrozeAt-s.t)<0.3) return 1;
+    return (t>=s.t-0.1 && t<=s.t+0.15) ? 1 : 0;
+  }
   const winEnd=s.t+Math.max(L>0?L:hold, 0.1);
   if(t<s.t-0.05 || t>winEnd) return 0;
   if(L>0){ const fade=0.5; if(t>winEnd-fade) return Math.max(0,(winEnd-t)/fade); }
@@ -2826,6 +2828,8 @@ function render(){
 
 function loopRender(){
   if(vid.paused) return;
+  updateTC();   /* check the freeze every frame, not just ~4x/sec on timeupdate, so it
+                   catches the beat promptly and a freeze-only mark doesn't blink */
   render();
   requestAnimationFrame(loopRender);
 }
