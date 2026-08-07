@@ -139,6 +139,10 @@ button{cursor:pointer;border:none;background:none}
 }
 .colhead .eyebrow{min-width:0;overflow:hidden;text-overflow:ellipsis}
 .colhead .eyebrow{flex:1}
+/* the Markup header has several action buttons — let them wrap within the column
+   instead of spilling under the next pane */
+.colhead.mkhead{flex-wrap:wrap;row-gap:6px}
+.colhead.mkhead .eyebrow{flex:0 0 100%}
 /* an iOS scroll layer with no background of its own paints white, not the
    colour it looks like it inherits — so every scroller states its own */
 .scroll{overflow:auto;flex:1;min-height:0;background:var(--pitch)}
@@ -559,7 +563,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
     </div>
 
     <div class="col">
-      <div class="colhead"><span class="eyebrow">Markup</span>
+      <div class="colhead mkhead"><span class="eyebrow">Markup</span>
         <button class="tbtn" id="trackbtn" title="Auto-follow the player under the selected Ground ring">Track</button>
         <button class="tbtn" id="flipbtn" title="Flip a selected curved or over-the-top arrow to bow the other way">⤢ Flip</button>
         <button class="tbtn" id="planebtn" title="Tilt a selected curved arrow into a 3D plane — going away, coming toward you, or flat">◈ Plane</button>
