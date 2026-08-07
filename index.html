@@ -591,6 +591,15 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <input type="number" id="lingerin" min="0" max="30" step="0.5" placeholder="uses freeze hold" disabled>
         </label>
         <div class="hint">Select a mark first. 0 = shows on the freeze then disappears; higher = stays while play continues, then fades out.</div>
+
+        <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Text size</div>
+        <div style="display:flex;gap:5px;align-items:center">
+          <button class="tbtn" id="textdown" title="Smaller text">A−</button>
+          <button class="tbtn" id="textsizeval" title="Current text size" style="flex:1">19</button>
+          <button class="tbtn" id="textup" title="Larger text">A+</button>
+        </div>
+        <div class="hint">Sizes a selected Text box or Callout — or sets the size for new ones.</div>
       </div>
     </div>
 
@@ -2233,7 +2242,7 @@ draw.addEventListener('pointerup', ()=>{
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
   if(d.tool==='zone'){ d.pts=zonePts(d).map(q=>({...q})); delete d.a; delete d.b; }   /* store 4 draggable corners */
   if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit();
-    if(d.tool==='callout'){ d.text=d.text||''; editTextInline(d, true); }   /* type the label right away */
+    if(d.tool==='callout'){ d.text=d.text||''; d.fs=textSize; editTextInline(d, true); }   /* type the label right away */
   } else render();
 });
 /* double-click finishes the Connect line. The two clicks of the double-click each
@@ -2301,15 +2310,16 @@ function migrateMark(m){
    (s.w, a normalised width) the text word-wraps to fit; otherwise lines are as
    typed. Hard line breaks (Shift+Enter) always split. */
 function textMetrics(s, ctx, W, scale){
-  ctx.font=`600 ${19*scale}px "Barlow Condensed",sans-serif`;
-  const lh=22*scale, paras=(s.text||'').split('\n');
+  const fs=s.fs||19;                                   /* per-mark text size (px) */
+  ctx.font=`600 ${fs*scale}px "Barlow Condensed",sans-serif`;
+  const lh=fs*1.16*scale, paras=(s.text||'').split('\n');
   let lines;
   if(s.w){
     const maxpx=Math.max(20, s.w*W); lines=[];
     for(const p of paras){ const wl=wrap(ctx,p,maxpx); if(wl.length) lines.push(...wl); else lines.push(''); }
   } else lines=paras;
   const natW=Math.max(0,...lines.map(l=>ctx.measureText(l).width));
-  return { lines, lh, boxW: s.w ? Math.max(s.w*W, natW) : natW };
+  return { lines, lh, boxW: s.w ? Math.max(s.w*W, natW) : natW, fs };
 }
 function textBoxHit(p,s){
   if(!s.a) return false;
@@ -2333,7 +2343,7 @@ function textHitsAt(p){
 /* place a new text mark inline at p and edit it right away (no modal) */
 function createTextInline(p){
   if(editingShape) return;
-  const s={tool:'text', color, a:{x:p.x,y:p.y}, text:'', t:beatSnap()};
+  const s={tool:'text', color, a:{x:p.x,y:p.y}, text:'', fs:textSize, t:beatSnap()};
   curClip.shapes.push(s);
   editTextInline(s, true);
 }
@@ -2351,7 +2361,7 @@ function editTextInline(s, isNew, initialValue){
   const r=draw.getBoundingClientRect(), bR=box.getBoundingClientRect();
   const W=draw.width||1, scale=Math.max(1,W/900);
   const dispW=r.width, dispH=r.height;
-  const fontPx=19*scale*(dispW/W), lineH=Math.round(fontPx*1.15);
+  const fontPx=(s.fs||19)*scale*(dispW/W), lineH=Math.round(fontPx*1.16);
   const col=(COLORS[s.color]||COLORS.ball).hex;
   const padX=6, padY=1, bd=1;
   /* position so the editor's text sits exactly on the rendered text — no jump */
@@ -2474,6 +2484,28 @@ function syncMarkTiming(){
   inp.disabled=dis; inp.value = (L!=null)?L:'';
   $$('#timingrow [data-linger]').forEach(b=>{ b.disabled=dis; b.setAttribute('aria-pressed', L!=null && +b.dataset.linger===L); });
 }
+
+/* Text size for Text boxes and Callouts. Adjusts the selected mark(s), or sets
+   the default for new ones when nothing is selected. */
+let textSize = 19;
+function bumpTextSize(delta){
+  const cl=v=>Math.max(10, Math.min(60, Math.round(v)));
+  const sel = curClip ? selection.filter(s=>s.tool==='text'||s.tool==='callout') : [];
+  if(sel.length){ sel.forEach(s=> s.fs=cl((s.fs||19)+delta)); touch(curClip); commit(); }
+  else { textSize=cl(textSize+delta); toast('New text size: '+textSize); }
+  syncTextSize();
+}
+let _tsSig=null;
+function syncTextSize(){
+  const el=$('#textsizeval'); if(!el) return;
+  const sel = curClip ? selection.filter(s=>s.tool==='text'||s.tool==='callout') : [];
+  const v = sel.length ? Math.round(sel[0].fs||19) : textSize;
+  const sig = sel.length+':'+v;
+  if(sig===_tsSig) return; _tsSig=sig;
+  el.textContent=v;
+}
+$('#textdown').addEventListener('click',()=>bumpTextSize(-2));
+$('#textup').addEventListener('click',()=>bumpTextSize(+2));
 $('#trackbtn').addEventListener('click',()=>{
   const ring = selection.find(s=>s.tool==='ground') || (curClip && curClip.shapes.filter(s=>s.tool==='ground').pop());
   if(!ring) return toast('Place a Ground ring on the player, then Track');
@@ -2886,6 +2918,7 @@ function render(){
     ctx.strokeRect(x,y,w,h); ctx.fillStyle='rgba(255,255,255,.08)'; ctx.fillRect(x,y,w,h); ctx.restore();
   }
   if(typeof syncMarkTiming==='function') syncMarkTiming();   /* keep the timing panel in sync with the selection */
+  if(typeof syncTextSize==='function') syncTextSize();
 }
 
 function loopRender(){
@@ -3049,18 +3082,18 @@ function paint(c, W, H, shapes, extra){
     }
     else if(s.tool==='text'){
       c.textAlign='left'; c.textBaseline='middle';
-      const m=textMetrics(s,c,W,scale), lines=m.lines, lh=m.lh, w=m.boxW;
+      const m=textMetrics(s,c,W,scale), lines=m.lines, lh=m.lh, w=m.boxW, pad=m.fs*0.74*scale;
       const x=s.a.x*W, y=s.a.y*H;
       c.shadowBlur=0; c.fillStyle='rgba(6,13,10,.82)';
-      c.fillRect(x-6*scale, y-14*scale, w+12*scale, (lines.length-1)*lh + 28*scale);
+      c.fillRect(x-6*scale, y-pad, w+12*scale, (lines.length-1)*lh + 2*pad);
       c.fillStyle=col;
       lines.forEach((l,i)=> c.fillText(l, x, y + i*lh));
     }
     else if(s.tool==='callout'){   /* a label at s.a with a leader arrow to the target s.b */
       c.textAlign='left'; c.textBaseline='middle';
-      const m=textMetrics(s,c,W,scale), lines=m.lines, lh=m.lh, tw=m.boxW;
+      const m=textMetrics(s,c,W,scale), lines=m.lines, lh=m.lh, tw=m.boxW, pad=m.fs*0.74*scale;
       const x=s.a.x*W, y=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
-      const boxX=x-6*scale, boxY=y-14*scale, boxW=tw+12*scale, boxH=(lines.length-1)*lh+28*scale;
+      const boxX=x-6*scale, boxY=y-pad, boxW=tw+12*scale, boxH=(lines.length-1)*lh+2*pad;
       const [ex,ey]=boxEdgePoint(boxX+boxW/2, boxY+boxH/2, boxW/2, boxH/2, bx, by);
       line(c, ex,ey, bx,by);                    /* leader from the box edge to the target */
       head(c, ex,ey, bx,by, scale);
