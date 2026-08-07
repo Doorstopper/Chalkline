@@ -623,8 +623,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </label>
 
         <div class="pairs">
-          <label class="field"><span class="eyebrow">Before (s)</span><input type="number" id="pre" value="6" min="0" step="1"></label>
-          <label class="field"><span class="eyebrow">After (s)</span><input type="number" id="post" value="6" min="0" step="1"></label>
+          <label class="field"><span class="eyebrow">Before (s)</span><input type="number" id="pre" value="2" min="0" step="1"></label>
+          <label class="field"><span class="eyebrow">After (s)</span><input type="number" id="post" value="7" min="0" step="1"></label>
         </div>
 
         <label class="field">
@@ -930,19 +930,19 @@ const COLORS = {
 };
 
 const DEFAULT_PADS = [
-  {label:'On the ball',    color:'ours',   pre:6,  post:7,  ask:'What could you see before it came to you?'},
-  {label:'Off the ball',   color:'space',  pre:9,  post:4,  ask:'Where were you? Where could you have been?'},
-  {label:'Passing option', color:'path',   pre:7,  post:5,  ask:'Who else was on? Why did you choose that one?'},
-  {label:'Defending',      color:'theirs', pre:8,  post:6,  ask:'Which way were you sending them?'},
-  {label:'Goal or chance', color:'flood',  pre:14, post:10, ask:'What started this? Go back three passes.'},
-  {label:'Team shape',     color:'ball',   pre:7,  post:8,  ask:'Are we too close together or too far apart?'},
-  {label:'Attacking',      color:'path',   pre:10, post:8,  ask:'What was on before the final ball?'}
+  {label:'On the ball',    color:'ours',   pre:2,  post:7,  ask:'What could you see before it came to you?'},
+  {label:'Off the ball',   color:'space',  pre:2,  post:7,  ask:'Where were you? Where could you have been?'},
+  {label:'Passing option', color:'path',   pre:2,  post:7,  ask:'Who else was on? Why did you choose that one?'},
+  {label:'Defending',      color:'theirs', pre:2,  post:7,  ask:'Which way were you sending them?'},
+  {label:'Goal or chance', color:'flood',  pre:2,  post:7,  ask:'What started this? Go back three passes.'},
+  {label:'Team shape',     color:'ball',   pre:2,  post:7,  ask:'Are we too close together or too far apart?'},
+  {label:'Attacking',      color:'path',   pre:2,  post:7,  ask:'What was on before the final ball?'}
 ];
 
 /* session state */
 let S = {
   pads: DEFAULT_PADS,
-  padsV: 1,           // default-pads migration version
+  padsV: 2,           // default-pads migration version
   marks: [],          // {id, t, padIndex, label, color, pre, post, ask, caption, shapes:[], player, u}
   tomb: [],           // ids deleted anywhere, so a merge can't resurrect them
   offset: 0,
@@ -1599,8 +1599,8 @@ $('#recat').addEventListener('change',()=>{
   toast('Reclassified as '+p.label);
 });
 
-$('#pre').addEventListener('input',()=>{ if(curClip){ curClip.pre=+$('#pre').value||0; touch(curClip); renderClips(); drawRail(); save(); }});
-$('#post').addEventListener('input',()=>{ if(curClip){ curClip.post=+$('#post').value||0; touch(curClip); renderClips(); drawRail(); save(); }});
+$('#pre').addEventListener('input',()=>{ if(curClip){ curClip.pre=Math.max(0,+$('#pre').value||0); touch(curClip); renderClips(); drawRail(); save(); }});
+$('#post').addEventListener('input',()=>{ if(curClip){ curClip.post=Math.max(0,+$('#post').value||0); touch(curClip); renderClips(); drawRail(); save(); }});
 $('#offset').addEventListener('input',()=>{ S.offset=+$('#offset').value||0; renderClips(); drawRail(); save(); });
 $('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value||25); save(); });
 
@@ -4062,8 +4062,12 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     S.padsV = d.padsV||0;
     if(S.padsV<1){
       if(!S.pads.some(p=>(p.label||'').toLowerCase()==='attacking'))
-        S.pads=[...S.pads, {label:'Attacking',color:'path',pre:10,post:8,ask:'What was on before the final ball?'}];
+        S.pads=[...S.pads, {label:'Attacking',color:'path',pre:2,post:7,ask:'What was on before the final ball?'}];
       S.padsV=1;
+    }
+    if(S.padsV<2){   /* every category now defaults to 2s before / 7s after */
+      S.pads.forEach(p=>{ p.pre=2; p.post=7; });
+      S.padsV=2;
     }
     S.marks = (d.marks||[]).map(m=>migrateMark({shapes:[],caption:'',u:0,player:'',...m}));
     S.tomb = d.tomb||[];
