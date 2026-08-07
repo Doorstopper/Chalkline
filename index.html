@@ -1537,7 +1537,13 @@ function renderClips(){
   });
 }
 
-function deleteClip(m){
+async function deleteClip(m){
+  const who=playersOf(m).join(', ');
+  const marks=(m.shapes||[]).length;
+  if(!await confirmBox(
+      `Delete this clip? “${m.label}”${who?' · '+who:''} at ${fmtClock(clipStart(m))}`
+      +(marks?` — including its ${marks} markup${marks===1?'':'s'}`:'')+`. This can't be undone.`))
+    return;
   S.marks = S.marks.filter(k=>k.id!==m.id);
   (S.tomb=S.tomb||[]).push(m.id);
   if(curClip && curClip.id===m.id){ curClip=null; render(); }
@@ -2197,6 +2203,7 @@ draw.addEventListener('pointermove', e=>{
   if(dragging){
     if(dragging.tool==='pen') dragging.pts.push(p);
     else if(dragging.tool==='wedge') wedgeCorners(dragging,p);
+    else if(dragging.tool==='callout') dragging.a=p;   /* first click is the arrowhead (b); the text end (a) follows the cursor */
     else dragging.b=p;
     render(); return;
   }
