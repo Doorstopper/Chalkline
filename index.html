@@ -2720,7 +2720,17 @@ function pickHandle(p){
       if(dist(p,s.pts[0])<te) return {s,mode:'pstart'};
     }
   }
-  for(let i=shapes.length-1;i>=0;i--){ if(onBody(p,shapes[i],tb)) return {s:shapes[i],mode:'move'}; }
+  /* Layered marks: Space zones and Spotlights are big background fills drawn under
+     everything, so a small foreground mark on top of them (an arrow, cone, text…)
+     must win the click. Take the topmost foreground body first; only fall back to a
+     background fill when nothing else is under the pointer. */
+  let bg=null;
+  for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
+    if(!onBody(p,s,tb)) continue;
+    if(s.tool==='zone'||s.tool==='spot'){ if(!bg) bg=s; }
+    else return {s, mode:'move'};
+  }
+  if(bg) return {s:bg, mode:'move'};
   return null;
 }
 function snapGeom(s){ return { s, a:s.a?{...s.a}:null, b:s.b?{...s.b}:null, c:s.c?{...s.c}:null, pts:s.pts?s.pts.map(q=>({...q})):null }; }
