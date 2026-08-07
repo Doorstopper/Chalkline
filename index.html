@@ -2242,6 +2242,7 @@ draw.addEventListener('pointerup', ()=>{
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
   if(d.tool==='zone'){ d.pts=zonePts(d).map(q=>({...q})); delete d.a; delete d.b; }   /* store 4 draggable corners */
+  if(d.tool==='runpen') d.pts=smoothRun(d.pts);   /* smooth the freehand run on release */
   if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit();
     if(d.tool==='callout'){ d.text=d.text||''; d.fs=textSize; editTextInline(d, true); }   /* type the label right away */
   } else render();
@@ -3077,7 +3078,8 @@ function paint(c, W, H, shapes, extra){
           c.stroke();
         }
         c.lineWidth=lw;
-        const tip=P[P.length-1], prev=P[P.length-2]||tip;
+        const tip=P[P.length-1]; let prev=P[0];   /* aim the head from a point a bit back, so a tiny final segment can't skew it */
+        for(let i=P.length-2;i>=0;i--){ prev=P[i]; if(Math.hypot(tip[0]-P[i][0], tip[1]-P[i][1])>=14*scale) break; }
         head(c, prev[0],prev[1], tip[0],tip[1], scale);
       }
     }
@@ -3214,6 +3216,22 @@ function scanTri(s,W,H){
   const dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1, ux=dx/L, uy=dy/L, nx=-uy, ny=ux;
   const hw=L*(s.spread!=null?s.spread:0.42);
   return [{x:ax,y:ay}, {x:bx+nx*hw, y:by+ny*hw}, {x:bx-nx*hw, y:by-ny*hw}];
+}
+/* clean up a freehand Run: thin out clustered/jittery points, then smooth so the
+   twin rails flow instead of zig-zagging. Endpoints are preserved. */
+function smoothRun(pts){
+  if(!pts || pts.length<=2) return pts;
+  const thinned=[pts[0]], minD=0.006;
+  for(let i=1;i<pts.length-1;i++){ const q=pts[i], L=thinned[thinned.length-1];
+    if(Math.hypot(q.x-L.x,q.y-L.y)>=minD) thinned.push(q); }
+  thinned.push(pts[pts.length-1]);
+  if(thinned.length<=2) return thinned;
+  const pass=arr=>{ const out=[arr[0]];
+    for(let i=1;i<arr.length-1;i++){ const a=arr[i-1],b=arr[i],c=arr[i+1];
+      out.push({x:(a.x+2*b.x+c.x)/4, y:(a.y+2*b.y+c.y)/4}); }
+    out.push(arr[arr.length-1]); return out; };
+  let s=thinned; for(let k=0;k<3;k++) s=pass(s);
+  return s;
 }
 function boxEdgePoint(cx,cy,hw,hh,tx,ty){
   const dx=tx-cx, dy=ty-cy; if(!dx && !dy) return [cx,cy];
