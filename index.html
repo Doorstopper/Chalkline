@@ -580,6 +580,15 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </div>
 
         <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Text size</div>
+        <div style="display:flex;gap:5px;align-items:center">
+          <button class="tbtn" id="textdown" title="Smaller text">A−</button>
+          <button class="tbtn" id="textsizeval" title="Current text size" style="flex:1">19</button>
+          <button class="tbtn" id="textup" title="Larger text">A+</button>
+        </div>
+        <div class="hint">Sizes a selected Text box or Callout — or sets the size for new ones.</div>
+
+        <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Selected mark — time on screen</div>
         <div style="display:flex;gap:5px;flex-wrap:wrap" id="timingrow">
           <button class="tbtn" data-linger="0" disabled title="On the freeze frame only — disappears when play resumes">Freeze only</button>
@@ -591,15 +600,6 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <input type="number" id="lingerin" min="0" max="30" step="0.5" placeholder="uses freeze hold" disabled>
         </label>
         <div class="hint">Select a mark first. 0 = shows on the freeze then disappears; higher = stays while play continues, then fades out.</div>
-
-        <div class="sep"></div>
-        <div class="eyebrow" style="margin-bottom:5px">Text size</div>
-        <div style="display:flex;gap:5px;align-items:center">
-          <button class="tbtn" id="textdown" title="Smaller text">A−</button>
-          <button class="tbtn" id="textsizeval" title="Current text size" style="flex:1">19</button>
-          <button class="tbtn" id="textup" title="Larger text">A+</button>
-        </div>
-        <div class="hint">Sizes a selected Text box or Callout — or sets the size for new ones.</div>
       </div>
     </div>
 
@@ -2380,15 +2380,44 @@ function editTextInline(s, isNew, initialValue){
         ? `width:${boxWpx}px;white-space:pre-wrap;overflow-wrap:break-word;`
         : `min-width:24px;max-width:${Math.max(60,dispW-left-8)}px;white-space:pre;`);
   box.appendChild(inp);
+
+  /* live text-size buttons at the box's bottom-right (Text & Callout only). They use
+     mousedown+preventDefault so tapping them doesn't blur/close the editor, and they
+     go away with the editor when you click off. */
+  let sizer=null;
+  const placeSizer=()=>{ if(!sizer) return;
+    const L=parseFloat(inp.style.left)||left, T=parseFloat(inp.style.top)||top;
+    sizer.style.left=(L+inp.offsetWidth-42)+'px';
+    sizer.style.top =(T+inp.offsetHeight+4)+'px'; };
+  if(s.tool==='text'||s.tool==='callout'){
+    sizer=document.createElement('div');
+    sizer.style.cssText='position:absolute;z-index:71;display:flex;gap:3px';
+    const mk=lab=>{ const b=document.createElement('button'); b.type='button'; b.textContent=lab;
+      b.style.cssText=`width:20px;height:20px;padding:0;font:700 14px/1 sans-serif;color:#EEF3EC;background:rgba(6,13,10,.92);border:1px solid ${col};border-radius:4px;cursor:pointer`;
+      return b; };
+    const bMinus=mk('−'), bPlus=mk('+');
+    sizer.append(bMinus,bPlus); box.appendChild(sizer);
+    const changeSize=delta=>{
+      s.fs=Math.max(10,Math.min(60,(s.fs||19)+delta));
+      const fp=s.fs*scale*(dispW/W), lh=Math.round(fp*1.16);
+      inp.style.font=`600 ${fp}px/${lh}px "Barlow Condensed",sans-serif`;
+      fit(); inp.focus();
+      if(typeof syncTextSize==='function'){ _tsSig=null; syncTextSize(); }
+    };
+    bMinus.addEventListener('mousedown',e=>{ e.preventDefault(); changeSize(-2); });
+    bPlus .addEventListener('mousedown',e=>{ e.preventDefault(); changeSize(+2); });
+  }
+
   /* a fixed-width box wraps and grows tall; an unsized box grows wide to fit.
      Shift+Enter adds hard line breaks (e.g. bullet points). */
   const meas=document.createElement('canvas').getContext('2d');
   const fit=()=>{
-    if(wrapMode){ inp.style.height='auto'; inp.style.height=inp.scrollHeight+'px'; return; }
-    meas.font=`600 ${fontPx}px "Barlow Condensed",sans-serif`;
+    const fp=(s.fs||19)*scale*(dispW/W), lh=Math.round(fp*1.16);
+    if(wrapMode){ inp.style.height='auto'; inp.style.height=inp.scrollHeight+'px'; placeSizer(); return; }
+    meas.font=`600 ${fp}px "Barlow Condensed",sans-serif`;
     const lines=(inp.value||' ').split('\n');
     inp.style.width=Math.ceil(Math.max(...lines.map(l=>meas.measureText(l||' ').width)))+6+'px';
-    inp.style.height=(lines.length*lineH)+'px'; };
+    inp.style.height=(lines.length*lh)+'px'; placeSizer(); };
   fit(); inp.addEventListener('input', fit);
   let done=false;
   const finish=(keep)=>{
@@ -2411,7 +2440,7 @@ function editTextInline(s, isNew, initialValue){
       const i=curClip.shapes.indexOf(s); if(i>=0) curClip.shapes.splice(i,1);
       if(isSel(s)) selection.splice(selection.indexOf(s),1);
     } else if(isNew && s.tool==='disc'){ discN=(+s.text||discN)+1; }
-    inp.remove(); editingShape=null; commit();
+    inp.remove(); if(sizer) sizer.remove(); editingShape=null; commit();
   };
   finishTextEdit=finish;
   inp.addEventListener('keydown',ev=>{
@@ -2785,6 +2814,9 @@ function beginMove(p, hit){
 function applyMove(p){
   const cl=v=>Math.max(0,Math.min(1,v)), mode=moving.mode;
   let dx=p.x-moving.start.x, dy=p.y-moving.start.y;
+  /* dead zone: a click (or the tiny drift in a double-click) must not nudge a mark —
+     only start moving once the pointer has actually travelled a few pixels */
+  if(!moving.moved && Math.hypot(dx,dy) < 0.006) return;
   if(mode==='gmove'){ const s=moving.gs; s._live={x:cl(moving.startCtr.x+dx),y:cl(moving.startCtr.y+dy)}; moving.moved=true; render(); return; }
   if(mode==='gradius'){ const s=moving.gs, ctr=groundCenter(s,vid.currentTime);
     s.r=Math.max(0.01, Math.hypot((p.x-ctr.x)*draw.width,(p.y-ctr.y)*draw.height)/draw.width); moving.moved=true; render(); return; }
