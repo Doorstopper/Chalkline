@@ -2357,7 +2357,7 @@ function editTextInline(s, isNew, initialValue){
   const top =(r.top -bR.top )+s.a.y*dispH - (bd+padY+lineH/2);
   editingShape=s; selection=[s]; render();
   const inp=document.createElement('textarea');
-  const wrapMode = s.tool==='text' && !!s.w;   /* a resized box wraps like PowerPoint */
+  const wrapMode = (s.tool==='text'||s.tool==='callout') && !!s.w;   /* a resized box wraps like PowerPoint */
   const boxWpx = wrapMode ? Math.max(24, s.w*dispW) : 0;
   inp.value=(initialValue!=null?initialValue:(s.text||'')); inp.spellcheck=false; inp.wrap=wrapMode?'soft':'off';
   inp.style.cssText=`position:absolute;left:${left}px;top:${top}px;`
@@ -2697,7 +2697,7 @@ function pickHandle(p){
       const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
       if(dist(p,{x:(mx-dy*fb)/W, y:(my+dx*fb)/H})<te) return {s,mode:'curvebow'};
     }
-    if(s.tool==='text'){   /* right-edge handle resizes the box → text re-wraps */
+    if(s.tool==='text'||s.tool==='callout'){   /* right-edge handle resizes the box → text re-wraps */
       const mc=(pickHandle._mc||(pickHandle._mc=document.createElement('canvas').getContext('2d')));
       const m=textMetrics(s,mc,W,hscale);
       const rx=(s.a.x*W+m.boxW)/W, ry=(s.a.y*H+(m.lines.length-1)*m.lh/2)/H;
@@ -2784,6 +2784,12 @@ function drawHandles(s){
     dotPx(mx-dy*fb, my+dx*fb); }
   else if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
   else if(s.tool==='text'){   /* right-edge handle to resize the box (drag → text wraps) */
+    const mc=(drawHandles._mc||(drawHandles._mc=document.createElement('canvas').getContext('2d')));
+    const m=textMetrics(s,mc,W,scale);
+    dotPx(s.a.x*W+m.boxW, s.a.y*H + (m.lines.length-1)*m.lh/2);
+  }
+  else if(s.tool==='callout'){   /* text end + arrowhead + right-edge width handle */
+    dot(s.a); if(s.b) dot(s.b);
     const mc=(drawHandles._mc||(drawHandles._mc=document.createElement('canvas').getContext('2d')));
     const m=textMetrics(s,mc,W,scale);
     dotPx(s.a.x*W+m.boxW, s.a.y*H + (m.lines.length-1)*m.lh/2);
