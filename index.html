@@ -514,6 +514,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="playbtn">Play</button>
           <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
           <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
+          <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on</button>
           <button class="tbtn" data-skip="-20" title="Back 20 seconds">« 20s</button>
           <button class="tbtn" data-skip="-10" title="Back 10 seconds">« 10s</button>
           <button class="tbtn" data-skip="-5"  title="Back 5 seconds">« 5s</button>
@@ -1759,6 +1760,20 @@ $('#restartbtn').addEventListener('click',()=>{
   clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
   vid.currentTime = clipStart(curClip);
   loopArmed = true; render();
+});
+/* keep watching the game from just after the last clip you tagged, so you don't
+   have to guess on the timeline where the last one ended */
+$('#playonbtn').addEventListener('click',()=>{
+  if(!vid.duration) return toast('Load a video first');
+  if(!S.marks.length) return toast('No clips tagged yet — just press Play');
+  const last = S.marks.reduce((a,b)=> clipEnd(b)>clipEnd(a)?b:a);
+  const to = Math.min(vid.duration, clipEnd(last)+0.05);
+  clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
+  loopArmed=false;                       /* run on into untagged footage, don't loop the clip */
+  vid.currentTime = to;
+  vid.play().catch(()=>{});
+  render();
+  toast('Playing on from '+fmtClock(clipEnd(last))+' — the end of your last clip');
 });
 /* jump straight to the markup points (cycling), paused, so you can edit them */
 $('#tomarksbtn').addEventListener('click',()=>{
