@@ -2475,7 +2475,7 @@ $('#clearbtn').addEventListener('click',()=>{ if(curClip){ curClip.shapes=[]; se
 $('#undomarks').addEventListener('click', undoMarkup);
 $('#flipbtn').addEventListener('click',()=>{
   if(!curClip) return;
-  const targets=selection.filter(s=>s.tool==='curve'||s.tool==='lob');
+  const targets=selection.filter(s=>s.tool==='curve'||s.tool==='lob'||(s.tool==='arrow'&&s.bow!=null));
   if(!targets.length) return toast('Select a curved or over-the-top arrow first, then Flip');
   targets.forEach(s=>{ if(s.bow!=null) s.bow=-s.bow; else s.flip=!s.flip; });
   commit();
@@ -2731,7 +2731,7 @@ function onBody(p,s,tb){
     const rx=Math.abs(s.b.x-s.a.x)/2||1e-6, ry=Math.abs(s.b.y-s.a.y)/2||1e-6;
     return Math.hypot((p.x-cx)/rx,(p.y-cy)/ry) < 1.3;
   }
-  if(s.tool==='curve'||s.tool==='lob'){ return curveDistPx(p,s) < tolPx; }
+  if(s.tool==='curve'||s.tool==='lob'||s.tool==='arrow'){ return curveDistPx(p,s) < tolPx; }
   return segDistPx(p,s.a,s.b) < tolPx; /* run (double), pass, option */
 }
 /* pick a grab: endpoint handle if near one, else the shape body. Topmost wins. */
@@ -2758,7 +2758,7 @@ function pickHandle(p){
        falls through to the body-grab below, so the first drag just moves it and
        never nudges an endpoint, apex or curve by accident. */
     if(!isSel(s)) continue;
-    if(s.tool==='curve'){   /* apex handle sets how tight the curve bows */
+    if(s.tool==='curve'||s.tool==='arrow'){   /* apex handle bows the curve / run arrow */
       const W=draw.width,H=draw.height, ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
       const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
       if(dist(p,{x:(mx-dy*fb)/W, y:(my+dx*fb)/H})<te) return {s,mode:'curvebow'};
@@ -2880,7 +2880,7 @@ function drawHandles(s){
     }
     if(ctr){ dotPx(ctr.x*W, ctr.y*H); if(s.r!=null) dotPx((ctr.x+s.r)*W, ctr.y*H); }
   }
-  else if(s.tool==='curve'){ dot(s.a); dot(s.b);   /* + apex handle to set the tightness */
+  else if(s.tool==='curve'||s.tool==='arrow'){ dot(s.a); dot(s.b);   /* + apex handle to bow it */
     const ax=s.a.x*W,ay=s.a.y*H,bx=s.b.x*W,by=s.b.y*H;
     const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
     dotPx(mx-dy*fb, my+dx*fb); }
@@ -3072,15 +3072,34 @@ function paint(c, W, H, shapes, extra){
         s.pts.forEach(p=>{ c.beginPath(); c.arc(p.x*W,p.y*H,r,0,7); c.fill(); });
       }
     }
-    else if(s.tool==='arrow'){   /* Run: twin parallel lines + arrowhead */
-      const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
-      const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1, o=2.6*scale;
-      const nx=-vy/L*o, ny=vx/L*o, hb=13*scale, ex=bx-vx/L*hb, ey=by-vy/L*hb;
-      c.lineWidth=lw*0.72;
-      line(c, ax+nx, ay+ny, ex+nx, ey+ny);
-      line(c, ax-nx, ay-ny, ex-nx, ey-ny);
-      c.lineWidth=lw;
-      head(c, ax,ay, bx,by, scale);
+    else if(s.tool==='arrow'){   /* Run: twin parallel rails + arrowhead — curvable via apex */
+      const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H, o=2.6*scale, fb=curveBow(s);
+      if(fb){   /* curved: twin rails follow the quadratic a→cp→b */
+        const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay, cx=mx-dy*fb, cy=my+dx*fb;
+        const N=22, pts=[];
+        for(let i=0;i<=N;i++){ const t=i/N,u=1-t; pts.push([u*u*ax+2*u*t*cx+t*t*bx, u*u*ay+2*u*t*cy+t*t*by]); }
+        c.lineWidth=lw*0.72;
+        for(const sg of [1,-1]){
+          c.beginPath();
+          for(let i=0;i<pts.length;i++){
+            const A=pts[Math.max(0,i-1)], B=pts[Math.min(N,i+1)];
+            let tx=B[0]-A[0], ty=B[1]-A[1]; const tl=Math.hypot(tx,ty)||1, nx=-ty/tl*o, ny=tx/tl*o;
+            const x=pts[i][0]+nx*sg, y=pts[i][1]+ny*sg;
+            i?c.lineTo(x,y):c.moveTo(x,y);
+          }
+          c.stroke();
+        }
+        c.lineWidth=lw;
+        head(c, cx,cy, bx,by, scale);
+      } else {   /* straight */
+        const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1;
+        const nx=-vy/L*o, ny=vx/L*o, hb=13*scale, ex=bx-vx/L*hb, ey=by-vy/L*hb;
+        c.lineWidth=lw*0.72;
+        line(c, ax+nx, ay+ny, ex+nx, ey+ny);
+        line(c, ax-nx, ay-ny, ex-nx, ey-ny);
+        c.lineWidth=lw;
+        head(c, ax,ay, bx,by, scale);
+      }
     }
     else if(s.tool==='pass'||s.tool==='option'){   /* Pass: solid line · Option: dotted */
       if(s.tool==='option') c.setLineDash([1.5*scale, 6*scale]);
@@ -3138,7 +3157,7 @@ function paint(c, W, H, shapes, extra){
 }
 /* signed curvature of a Curve arrow: a dragged apex overrides the default bow,
    and its sign carries the direction (so it also subsumes Flip). */
-function curveBow(s){ return s.bow!=null ? s.bow : 0.26*(s.flip?-1:1); }
+function curveBow(s){ if(s.bow!=null) return s.bow; return s.tool==='curve' ? 0.26*(s.flip?-1:1) : 0; }
 /* A quadratic arc drawn as a filled ribbon whose width tapers from wStart to wEnd.
    Narrowing toward one end reads as depth — the arrow heading into / out of the
    screen — which is how the Plane control fakes a 3D plane. */
