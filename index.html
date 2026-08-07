@@ -2230,6 +2230,7 @@ draw.addEventListener('pointerup', ()=>{
   const tiny = d.tool==='pen' ? d.pts.length<3
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
+  if(d.tool==='zone'){ d.pts=zonePts(d).map(q=>({...q})); delete d.a; delete d.b; }   /* store 4 draggable corners */
   if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit();
     if(d.tool==='callout'){ d.text=d.text||''; editTextInline(d, true); }   /* type the label right away */
   } else render();
@@ -2656,8 +2657,9 @@ function onBody(p,s,tb){
   if(s.tool==='disc'||s.tool==='text'){ return textBoxHit(p,s); }
   if(s.tool==='callout'){ return textBoxHit(p,s) || segDistPx(p,s.a,s.b) < tolPx; }
   if(s.tool==='zone'){
-    const x0=Math.min(s.a.x,s.b.x),x1=Math.max(s.a.x,s.b.x),y0=Math.min(s.a.y,s.b.y),y1=Math.max(s.a.y,s.b.y);
-    return p.x>=x0-tb && p.x<=x1+tb && p.y>=y0-tb && p.y<=y1+tb;
+    const P=zonePts(s);
+    return pointInTri(p,P[0],P[1],P[2]) || pointInTri(p,P[0],P[2],P[3])
+        || P.some((q,i)=> segDistPx(p,q,P[(i+1)%4]) < tolPx);
   }
   if(s.tool==='spot'){ return dist(p,s.a) <= dist(s.a,s.b)+tb; }
   if(s.tool==='circle'){
@@ -2703,6 +2705,10 @@ function pickHandle(p){
       const rx=(s.a.x*W+m.boxW)/W, ry=(s.a.y*H+(m.lines.length-1)*m.lh/2)/H;
       if(dist(p,{x:rx,y:ry})<te) return {s,mode:'twidth'};
     }
+    if(s.tool==='zone'){   /* each corner can be pushed/pulled to match the field angle */
+      const P=zonePts(s);
+      for(let k=0;k<4;k++) if(dist(p,P[k])<te) return {s,mode:'zcorner',idx:k};
+    }
     if(s.c && dist(p,s.c)<te) return {s,mode:'c'};
     if(s.b && dist(p,s.b)<te) return {s,mode:'b'};
     if(s.a && dist(p,s.a)<te) return {s,mode:'a'};
@@ -2721,9 +2727,11 @@ function beginMove(p, hit){
     if(hit.mode==='gradius'){ moving={mode:'gradius', gs:s, start:p, moved:false}; return; }
     moving={mode:'gmove', gs:s, start:p, moved:false, startCtr:groundCenter(s,vid.currentTime)}; return;
   }
+  /* materialise a Space zone's 4 corners the first time it's touched (older zones stored a,b) */
+  if(s.tool==='zone' && !(s.pts&&s.pts.length===4)){ s.pts=zonePts(s).map(q=>({...q})); delete s.a; delete s.b; }
   /* a body grab moves the whole selection; a handle grab resizes just that mark */
   const targets = (hit.mode==='move' && isSel(hit.s)) ? selection : [hit.s];
-  moving={ mode:hit.mode, start:p, moved:false, items:targets.map(snapGeom) };
+  moving={ mode:hit.mode, idx:hit.idx, start:p, moved:false, items:targets.map(snapGeom) };
 }
 function applyMove(p){
   const cl=v=>Math.max(0,Math.min(1,v)), mode=moving.mode;
@@ -2759,6 +2767,10 @@ function applyMove(p){
     else if(mode==='twidth'){   /* drag the right edge: set the text box width; text re-wraps */
       s.w=Math.max(0.05, Math.min(1, p.x - s.a.x));
     }
+    else if(mode==='zcorner'){   /* push/pull one corner of the Space quad */
+      const i=moving.idx;
+      s.pts=o.pts.map((q,k)=> k===i ? {x:cl(q.x+dx),y:cl(q.y+dy)} : {...q});
+    }
   }
   moving.moved=true; render();
 }
@@ -2783,6 +2795,7 @@ function drawHandles(s){
     const mx=(ax+bx)/2,my=(ay+by)/2,dx=bx-ax,dy=by-ay,fb=curveBow(s);
     dotPx(mx-dy*fb, my+dx*fb); }
   else if(s.tool==='wedge'){ dot(s.a); dot(s.b); dot(s.c); }
+  else if(s.tool==='zone'){ zonePts(s).forEach(q=>dot(q)); }   /* a dot on each corner */
   else if(s.tool==='text'){   /* right-edge handle to resize the box (drag → text wraps) */
     const mc=(drawHandles._mc||(drawHandles._mc=document.createElement('canvas').getContext('2d')));
     const m=textMetrics(s,mc,W,scale);
@@ -2862,16 +2875,16 @@ function paint(c, W, H, shapes, extra){
   const scale = Math.max(1, W/900);
   const lw = 3.2*scale;
 
-  /* zones sit under the dimming layer */
+  /* zones sit under the dimming layer — a 4-corner quad so it can match the field's angle */
   all.filter(s=>s.tool==='zone').forEach(s=>{
-    const x=Math.min(s.a.x,s.b.x)*W, y=Math.min(s.a.y,s.b.y)*H;
-    const w=Math.abs(s.b.x-s.a.x)*W, h=Math.abs(s.b.y-s.a.y)*H;
+    const P=zonePts(s);
     c.save();
     c.globalAlpha=s._alpha==null?1:s._alpha;
     const zc=(COLORS[s.color]||COLORS.ball).hex;
-    c.fillStyle=hexA(zc,.22); c.fillRect(x,y,w,h);
-    c.strokeStyle=zc; c.lineWidth=lw*.7; c.setLineDash([9*scale,7*scale]);
-    c.strokeRect(x,y,w,h); c.restore();
+    c.beginPath(); P.forEach((q,i)=> i?c.lineTo(q.x*W,q.y*H):c.moveTo(q.x*W,q.y*H)); c.closePath();
+    c.fillStyle=hexA(zc,.22); c.fill();
+    c.strokeStyle=zc; c.lineWidth=lw*.7; c.setLineDash([9*scale,7*scale]); c.stroke();
+    c.restore();
   });
 
   /* spotlight: dim everything, punch holes — composited off-screen so zones survive */
@@ -3044,6 +3057,13 @@ function taperedCurve(c, ax,ay, cx,cy, bx,by, wStart, wEnd){
 function line(c,x1,y1,x2,y2){ c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke(); }
 /* the point on a box's edge (centre cx,cy, half-size hw,hh) in the direction of a
    target — where a callout's leader line should start so it doesn't cross the text */
+/* the four corners of a Space zone (TL,TR,BR,BL). New zones store s.pts; older
+   axis-aligned zones (a,b) derive their corners on the fly. */
+function zonePts(s){
+  if(s.pts && s.pts.length===4) return s.pts;
+  const x0=Math.min(s.a.x,s.b.x), x1=Math.max(s.a.x,s.b.x), y0=Math.min(s.a.y,s.b.y), y1=Math.max(s.a.y,s.b.y);
+  return [{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}];
+}
 function boxEdgePoint(cx,cy,hw,hh,tx,ty){
   const dx=tx-cx, dy=ty-cy; if(!dx && !dy) return [cx,cy];
   const s=Math.min(dx?hw/Math.abs(dx):Infinity, dy?hh/Math.abs(dy):Infinity);
