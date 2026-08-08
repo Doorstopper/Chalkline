@@ -152,7 +152,9 @@ button{cursor:pointer;border:none;background:none}
   border-left:4px solid transparent;
 }
 .clip:hover{background:var(--turf)}
-.clip[aria-current="true"]{background:var(--turf-hi)}
+/* the clip that's actually playing — a solid ring so it stays distinct from a
+   clip merely lit up by a rail hover */
+.clip[aria-current="true"]{background:var(--turf-hi);box-shadow:inset 0 0 0 2px var(--flood)}
 .clip .t{font-family:var(--mono);font-size:11px;color:var(--chalk-dim);letter-spacing:.05em}
 .clip .c{font-family:var(--display);font-size:17px;letter-spacing:.02em;text-transform:uppercase;line-height:1.1;margin-top:1px}
 .clip .cap{font-size:11px;color:var(--chalk-dim);margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -229,9 +231,9 @@ button{cursor:pointer;border:none;background:none}
 .railtick{position:absolute;top:0;bottom:0;width:2px;opacity:.9}
 .railtick.sel{width:3px;box-shadow:0 0 0 1px rgba(255,255,255,.45)}
 .railtick.hi{width:4px;opacity:1;box-shadow:0 0 7px 1px rgba(143,196,255,.95);z-index:5}
-/* a clip row lit up because its mark is hovered on the rail — cool blue, distinct
-   from the amber of the clip that's actually playing */
-.clip.railhi{background:rgba(143,196,255,.14);box-shadow:inset 0 0 0 1.5px rgba(143,196,255,.6)}
+/* a clip row lit up because its mark is hovered on the rail — filled in the
+   clip's own tag colour (set inline). The playing clip keeps its ring on top,
+   so the two never look the same. */
 /* clickable clip card that floats above the hovered mark on the rail */
 .railcard{position:fixed;display:none;z-index:40;min-width:150px;max-width:250px;
   background:rgba(12,23,17,.97);border:1px solid var(--line);border-left:3px solid var(--flood);
@@ -2102,7 +2104,7 @@ function railCardHTML(m){
 function clearRailHover(){
   railHoverMark=null;
   const rail=$('#rail'); rail.querySelectorAll('.railtick.hi').forEach(n=>n.classList.remove('hi'));
-  $$('#cliplist .clip.railhi').forEach(n=>n.classList.remove('railhi'));
+  $$('#cliplist .clip.railhi').forEach(n=>{ n.classList.remove('railhi'); n.style.background=''; });
   $('#railcard').style.display='none';
 }
 function showRailCardFor(m, r){
@@ -2110,10 +2112,10 @@ function showRailCardFor(m, r){
   railHoverMark=m;
   const rail=$('#rail');
   rail.querySelectorAll('.railtick.hi').forEach(n=>n.classList.remove('hi'));
-  $$('#cliplist .clip.railhi').forEach(n=>n.classList.remove('railhi'));
+  $$('#cliplist .clip.railhi').forEach(n=>{ n.classList.remove('railhi'); n.style.background=''; });
   const tick=rail.querySelector('.railtick[data-id="'+m.id+'"]'); if(tick) tick.classList.add('hi');
   const row=$('#cliplist .clip[data-id="'+m.id+'"]');
-  if(row){ row.classList.add('railhi'); row.scrollIntoView({block:'nearest'}); }
+  if(row){ row.classList.add('railhi'); row.style.background=hexA(COLORS[m.color]?.hex||'#8FC4FF', .20); row.scrollIntoView({block:'nearest'}); }
   const card=$('#railcard'); card.innerHTML=railCardHTML(m);
   card.style.borderLeftColor = COLORS[m.color]?.hex || 'var(--flood)';   /* match the tag colour */
   const markX = r.left + (m.t+(+S.offset||0))/D*r.width;
@@ -4050,6 +4052,22 @@ document.addEventListener('keydown',e=>{
   if(t){ tool = (tool===t.id ? null : t.id); renderTools(); return; }
   const ti=TAGKEYS.indexOf(e.key.toLowerCase());
   if(ti>-1 && ti<S.pads.length){ e.preventDefault(); tagNow(ti); return; }
+  /* While a rail mark's card is up (hovering the scrub bar), Left/Right step the
+     hover through the marks in time order — same as sliding the mouse along. */
+  if((e.key==='ArrowLeft'||e.key==='ArrowRight') && railHoverMark && vid.duration){
+    e.preventDefault();
+    const sorted=[...S.marks].sort((a,b)=>a.t-b.t);
+    const i=sorted.findIndex(m=>m.id===railHoverMark.id);
+    const n=e.key==='ArrowLeft' ? Math.max(0,i-1) : Math.min(sorted.length-1,i+1);
+    if(sorted[n]){ clearTimeout(railHideT); showRailCardFor(sorted[n], $('#rail').getBoundingClientRect()); }
+    return;
+  }
+  /* Enter opens the mark under the rail-hover card and plays it (loops the clip) */
+  if(e.key==='Enter' && railHoverMark){
+    e.preventDefault(); const m=railHoverMark; clearRailHover(); selectClip(m);
+    if(vid.src && vid.paused){ const p=vid.play(); if(p&&p.catch) p.catch(()=>{}); }
+    return;
+  }
   /* With a ground ring selected, the arrow keys nudge it (and anything selected
      with it) for fine positioning — a few px per press, Shift for bigger steps.
      With no ring selected they keep their normal frame-step behaviour. */
