@@ -3110,28 +3110,25 @@ function paint(c, W, H, shapes, extra){
         const N=22, pts=[];
         for(let i=0;i<=N;i++){ const t=i/N,u=1-t; pts.push([u*u*ax+2*u*t*cx+t*t*bx, u*u*ay+2*u*t*cy+t*t*by]); }
         twinRailArrow(c, pts, o, lw, scale);
-      } else {   /* straight */
-        const vx=bx-ax, vy=by-ay, L=Math.hypot(vx,vy)||1;
-        const nx=-vy/L*o, ny=vx/L*o, hb=13*scale*wt, ex=bx-vx/L*hb, ey=by-vy/L*hb;
-        c.lineWidth=lw*0.72;
-        line(c, ax+nx, ay+ny, ex+nx, ey+ny);
-        line(c, ax-nx, ay-ny, ex-nx, ey-ny);
-        c.lineWidth=lw;
-        head(c, ax,ay, bx,by, scale);
+      } else {   /* straight — same twin-rail helper, so the head junction matches the curved case */
+        twinRailArrow(c, [[ax,ay],[bx,by]], o, lw, scale);
       }
     }
     else if(s.tool==='pass'||s.tool==='option'){   /* Pass: solid line · Option: dotted */
+      const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
+      const [tx,ty]=trimEnd(ax,ay,bx,by, headReach(scale)*0.9);   /* stop at the head base, not past the tip */
       if(s.tool==='option') c.setLineDash([1.5*scale, 6*scale]);
-      line(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H);
+      line(c,ax,ay,tx,ty);
       c.setLineDash([]);
-      head(c,s.a.x*W,s.a.y*H,s.b.x*W,s.b.y*H,scale);
+      head(c,ax,ay,bx,by,scale);
     }
     else if(s.tool==='lob'){    /* Over the top: solid lofted arc + arrowhead */
       const ax=s.a.x*W, ay=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const mx=(ax+bx)/2, my=(ay+by)/2, dx=bx-ax, dy=by-ay, L=Math.hypot(dx,dy)||1;
       const nx=-dy/L, ny=dx/L, bow=Math.min(L*0.55, 120*scale), sgn=(ny>0?-1:1)*(s.flip?-1:1);
       const cx=mx+nx*bow*sgn, cy=my+ny*bow*sgn;
-      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+      const [tx,ty]=trimEnd(cx,cy,bx,by, headReach(scale)*0.9);   /* end the arc at the head base */
+      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,tx,ty); c.stroke();
       head(c, cx,cy, bx,by, scale);
     }
     else if(s.tool==='curve'){
@@ -3139,7 +3136,8 @@ function paint(c, W, H, shapes, extra){
       const mx=(ax+bx)/2, my=(ay+by)/2;
       const dx=bx-ax, dy=by-ay, fb=curveBow(s);
       const cx=mx-dy*fb, cy=my+dx*fb;
-      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,bx,by); c.stroke();
+      const [tx,ty]=trimEnd(cx,cy,bx,by, headReach(scale)*0.9);   /* end the arc at the head base */
+      c.beginPath(); c.moveTo(ax,ay); c.quadraticCurveTo(cx,cy,tx,ty); c.stroke();
       head(c,cx,cy,bx,by,scale);
     }
     else if(s.tool==='disc'){
@@ -3165,7 +3163,8 @@ function paint(c, W, H, shapes, extra){
       const x=s.a.x*W, y=s.a.y*H, bx=s.b.x*W, by=s.b.y*H;
       const boxX=x-6*scale, boxY=y-pad, boxW=tw+12*scale, boxH=(lines.length-1)*lh+2*pad;
       const [ex,ey]=boxEdgePoint(boxX+boxW/2, boxY+boxH/2, boxW/2, boxH/2, bx, by);
-      line(c, ex,ey, bx,by);                    /* leader from the box edge to the target */
+      const [lx,ly]=trimEnd(ex,ey, bx,by, headReach(scale)*0.9);   /* stop at the head base */
+      line(c, ex,ey, lx,ly);                    /* leader from the box edge to the target */
       head(c, ex,ey, bx,by, scale);
       c.shadowBlur=0; c.fillStyle='rgba(6,13,10,.82)'; c.fillRect(boxX,boxY,boxW,boxH);
       c.fillStyle=col;
@@ -3234,8 +3233,18 @@ function boxEdgePoint(cx,cy,hw,hh,tx,ty){
   const s=Math.min(dx?hw/Math.abs(dx):Infinity, dy?hh/Math.abs(dy):Infinity);
   return [cx+dx*s, cy+dy*s];
 }
+/* how far an arrowhead reaches back from its tip (so lines can stop at the base
+   instead of poking out past the point) */
+function headReach(scale){ return 15*scale*(S.lineWt||1); }
+/* shorten a straight line so it ends `back` px before (x2,y2), along its own
+   direction — returns the trimmed endpoint. Keeps the arrowhead from sitting
+   behind a line that overshoots the tip. */
+function trimEnd(x1,y1,x2,y2,back){
+  const L=Math.hypot(x2-x1,y2-y1)||1, k=Math.max(0,(L-back)/L);
+  return [x1+(x2-x1)*k, y1+(y2-y1)*k];
+}
 function head(c,x1,y1,x2,y2,scale){
-  const a=Math.atan2(y2-y1,x2-x1), L=15*scale*(S.lineWt||1);
+  const a=Math.atan2(y2-y1,x2-x1), L=headReach(scale);
   c.beginPath(); c.moveTo(x2,y2);
   c.lineTo(x2-L*Math.cos(a-0.42), y2-L*Math.sin(a-0.42));
   c.lineTo(x2-L*Math.cos(a+0.42), y2-L*Math.sin(a+0.42));
@@ -3245,32 +3254,39 @@ function head(c,x1,y1,x2,y2,scale){
    on the rail ends and points along the true end direction (no detached head) */
 function twinRailArrow(c, P, o, lw, scale){
   if(!P || P.length<2) return;
-  const wt=(S.lineWt||1), headLen=15*scale*wt, tip=P[P.length-1];
-  /* walk back along the path by arc-length headLen to the head base, ON the path */
-  let acc=0, base=P[0], cut=0;
-  for(let i=P.length-1;i>0;i--){
-    const seg=Math.hypot(P[i][0]-P[i-1][0], P[i][1]-P[i-1][1]);
-    if(acc+seg>=headLen){ const t=(headLen-acc)/(seg||1);
-      base=[P[i][0]+(P[i-1][0]-P[i][0])*t, P[i][1]+(P[i-1][1]-P[i][1])*t]; cut=i; break; }
-    acc+=seg; base=P[i-1]; cut=i-1;
+  const wt=(S.lineWt||1), tip=P[P.length-1];
+  const headLen=Math.max(15*scale*wt, o*3);          /* how far the head reaches back from the tip */
+  const hw=o + Math.max(6*scale*wt, o*0.8);          /* head base half-width — comfortably wider than the rails */
+  /* point on the path arc-length `d` back from the tip, plus the vertex index it falls in */
+  function along(d){
+    let acc=0;
+    for(let i=P.length-1;i>0;i--){
+      const seg=Math.hypot(P[i][0]-P[i-1][0], P[i][1]-P[i-1][1]);
+      if(acc+seg>=d){ const t=(d-acc)/(seg||1);
+        return {pt:[P[i][0]+(P[i-1][0]-P[i][0])*t, P[i][1]+(P[i-1][1]-P[i][1])*t], cut:i}; }
+      acc+=seg;
+    }
+    return {pt:P[0].slice(), cut:0};
   }
-  const rail=P.slice(0,cut); rail.push(base);
+  const base=along(headLen).pt;                       /* head base, on the path */
+  const rEnd=along(headLen*0.5);                       /* rails run to here — tucked well inside the head */
+  const rail=P.slice(0, rEnd.cut); rail.push(rEnd.pt);
   if(rail.length>=2){
     c.lineWidth=lw*0.72;
     for(const sg of [1,-1]){
       c.beginPath();
       for(let i=0;i<rail.length;i++){
         const A=rail[Math.max(0,i-1)], B=rail[Math.min(rail.length-1,i+1)];
-        let tx=B[0]-A[0], ty=B[1]-A[1]; const tl=Math.hypot(tx,ty)||1, nx=-ty/tl*o, ny=tx/tl*o;
+        const tx=B[0]-A[0], ty=B[1]-A[1], tl=Math.hypot(tx,ty)||1, nx=-ty/tl*o, ny=tx/tl*o;
         const x=rail[i][0]+nx*sg, y=rail[i][1]+ny*sg; i?c.lineTo(x,y):c.moveTo(x,y);
       }
       c.stroke();
     }
     c.lineWidth=lw;
   }
-  /* arrowhead: back edge on `base` (the rail end), tip at `tip` */
+  /* solid arrowhead drawn on top: back edge through `base`, tip at `tip`.
+     The rails end inside the head, so the fill hides their ends — no seam. */
   const dl=Math.hypot(tip[0]-base[0], tip[1]-base[1])||1, dx=(tip[0]-base[0])/dl, dy=(tip[1]-base[1])/dl;
-  const hw=Math.max(6.2*scale*wt, o*1.7);
   c.beginPath(); c.moveTo(tip[0],tip[1]);
   c.lineTo(base[0]-dy*hw, base[1]+dx*hw);
   c.lineTo(base[0]+dy*hw, base[1]-dx*hw);
