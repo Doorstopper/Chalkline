@@ -1545,7 +1545,9 @@ function renderClips(){
     b.className='clip';
     b.dataset.id=m.id;
     b.style.borderLeftColor = COLORS[m.color]?.hex;
-    b.setAttribute('aria-current', curClip && curClip.id===m.id);
+    const isCur = curClip && curClip.id===m.id;
+    b.setAttribute('aria-current', isCur);
+    if(isCur) b.style.boxShadow = 'inset 0 0 0 2px '+(COLORS[m.color]?.hex||'var(--flood)');   /* playing ring in the tag colour */
     const dur = Math.round(clipEnd(m)-clipStart(m));
     const who = playersOf(m).join(', ');
     b.innerHTML = `<div class="t">${fmtClock(clipStart(m))} · ${dur}s${m.shapes.length?' · '+m.shapes.length+' drawn':''}</div>
