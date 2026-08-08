@@ -2084,7 +2084,12 @@ function drawRail(){
 $('#rail').addEventListener('click',e=>{
   if(!vid.duration) return;
   const r=e.currentTarget.getBoundingClientRect();
-  vid.currentTime = (e.clientX-r.left)/r.width*vid.duration;
+  const x=e.clientX-r.left, D=vid.duration;
+  /* on/near a marker → open that clip; empty bar → seek to the clicked time */
+  let near=null, nd=1e9;
+  S.marks.forEach(m=>{ const mx=(m.t+(+S.offset||0))/D*r.width; const d=Math.abs(mx-x); if(d<nd){ nd=d; near=m; } });
+  if(near && nd<=12){ clearRailHover(); selectClip(near); return; }
+  vid.currentTime = x/r.width*vid.duration;
   loopArmed = false;
   render();
 });
