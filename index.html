@@ -237,7 +237,7 @@ button{cursor:pointer;border:none;background:none}
   background:rgba(12,23,17,.97);border:1px solid var(--line);border-left:3px solid var(--flood);
   border-radius:6px;padding:7px 9px;box-shadow:0 6px 20px rgba(0,0,0,.5);cursor:pointer;
   transform:translateX(-50%)}
-.railcard:hover{border-color:rgba(143,196,255,.7);border-left-color:rgba(143,196,255,.9)}
+.railcard:hover{border-top-color:rgba(143,196,255,.7);border-right-color:rgba(143,196,255,.7);border-bottom-color:rgba(143,196,255,.7)}
 .railcard .rt{font-family:var(--mono);font-size:10px;color:var(--chalk-dim);letter-spacing:.05em}
 .railcard .rc{font-family:var(--display);font-size:15px;letter-spacing:.02em;text-transform:uppercase;line-height:1.1;margin-top:2px}
 .railcard .rw{margin-top:3px;font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--chalk-dim)}
@@ -2115,6 +2115,7 @@ function showRailCardFor(m, r){
   const row=$('#cliplist .clip[data-id="'+m.id+'"]');
   if(row){ row.classList.add('railhi'); row.scrollIntoView({block:'nearest'}); }
   const card=$('#railcard'); card.innerHTML=railCardHTML(m);
+  card.style.borderLeftColor = COLORS[m.color]?.hex || 'var(--flood)';   /* match the tag colour */
   const markX = r.left + (m.t+(+S.offset||0))/D*r.width;
   card.style.display='block';
   const half=card.offsetWidth/2;
