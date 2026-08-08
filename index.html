@@ -228,6 +228,22 @@ button{cursor:pointer;border:none;background:none}
 }
 .railtick{position:absolute;top:0;bottom:0;width:2px;opacity:.9}
 .railtick.sel{width:3px;box-shadow:0 0 0 1px rgba(255,255,255,.45)}
+.railtick.hi{width:4px;opacity:1;box-shadow:0 0 7px 1px rgba(143,196,255,.95);z-index:5}
+/* a clip row lit up because its mark is hovered on the rail — cool blue, distinct
+   from the amber of the clip that's actually playing */
+.clip.railhi{background:rgba(143,196,255,.14);box-shadow:inset 0 0 0 1.5px rgba(143,196,255,.6)}
+/* clickable clip card that floats above the hovered mark on the rail */
+.railcard{position:fixed;display:none;z-index:40;min-width:150px;max-width:250px;
+  background:rgba(12,23,17,.97);border:1px solid var(--line);border-left:3px solid var(--flood);
+  border-radius:6px;padding:7px 9px;box-shadow:0 6px 20px rgba(0,0,0,.5);cursor:pointer;
+  transform:translateX(-50%)}
+.railcard:hover{border-color:rgba(143,196,255,.7);border-left-color:rgba(143,196,255,.9)}
+.railcard .rt{font-family:var(--mono);font-size:10px;color:var(--chalk-dim);letter-spacing:.05em}
+.railcard .rc{font-family:var(--display);font-size:15px;letter-spacing:.02em;text-transform:uppercase;line-height:1.1;margin-top:2px}
+.railcard .rw{margin-top:3px;font-family:var(--mono);font-size:10px;letter-spacing:.05em;color:var(--chalk-dim)}
+.railcard .rp{margin-top:3px;font-size:11px;color:var(--chalk-dim);overflow:hidden;text-overflow:ellipsis;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.railcard .rgo{margin-top:5px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:#8FC4FF;text-transform:uppercase}
 .railwin{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.14);border-left:1px solid var(--flood);border-right:1px solid var(--flood)}
 .railhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--chalk);pointer-events:none}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
@@ -510,6 +526,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <div class="railhead" id="railhead" style="left:0"></div>
           <div class="railtip" id="railtip"></div>
         </div>
+        <div class="railcard" id="railcard"></div>
         <div class="tbar">
           <button class="tbtn" id="playbtn">Play</button>
           <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
@@ -1524,6 +1541,7 @@ function renderClips(){
     row.className='cliprow';
     const b = document.createElement('button');
     b.className='clip';
+    b.dataset.id=m.id;
     b.style.borderLeftColor = COLORS[m.color]?.hex;
     b.setAttribute('aria-current', curClip && curClip.id===m.id);
     const dur = Math.round(clipEnd(m)-clipStart(m));
@@ -2047,6 +2065,7 @@ function drawRail(){
     S.marks.forEach(m=>{
       const d=document.createElement('div');
       d.className='railtick'+(curClip&&curClip.id===m.id?' sel':'');
+      d.dataset.id=m.id;
       d.style.left=((m.t+(+S.offset||0))/D*100)+'%';
       d.style.background=COLORS[m.color]?.hex;
       rail.appendChild(d);
@@ -2065,19 +2084,72 @@ $('#rail').addEventListener('click',e=>{
   loopArmed = false;
   render();
 });
-/* hover the time bar to preview the elapsed time at the pointer */
+/* ---- hovering the time bar ----
+   Over open bar: preview the elapsed time at the pointer.
+   Near a clip mark: light that clip up in the side panel (cool blue, so it's
+   distinct from the amber of the clip that's actually playing) and float a
+   clickable info card above the mark. */
+let railHoverMark=null, railHideT=null;
+function railCardHTML(m){
+  const dur=Math.round(clipEnd(m)-clipStart(m)), who=playersOf(m).join(', ');
+  const badge = m.kind ? `<span style="margin-left:6px;font-size:9px;font-weight:700;color:${m.kind==='highlight'?'#FFC93C':'#8FC4FF'}">${m.kind==='highlight'?'★ HL':'🎓 LRN'}</span>` : '';
+  return `<div class="rt">${fmtClock(clipStart(m))} · ${dur}s${m.shapes.length?' · '+m.shapes.length+' drawn':''}</div>
+    <div class="rc"><span class="dot" style="display:inline-block;width:6px;height:6px;border-radius:99px;margin-right:5px;vertical-align:middle;background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}${badge}</div>
+    ${who?`<div class="rw">${esc(who)}</div>`:''}
+    ${m.caption?`<div class="rp">${esc(m.caption)}</div>`:''}
+    <div class="rgo">Click to open ▸</div>`;
+}
+function clearRailHover(){
+  railHoverMark=null;
+  const rail=$('#rail'); rail.querySelectorAll('.railtick.hi').forEach(n=>n.classList.remove('hi'));
+  $$('#cliplist .clip.railhi').forEach(n=>n.classList.remove('railhi'));
+  $('#railcard').style.display='none';
+}
+function showRailCardFor(m, r){
+  const D=vid.duration||0; if(!D) return;
+  railHoverMark=m;
+  const rail=$('#rail');
+  rail.querySelectorAll('.railtick.hi').forEach(n=>n.classList.remove('hi'));
+  $$('#cliplist .clip.railhi').forEach(n=>n.classList.remove('railhi'));
+  const tick=rail.querySelector('.railtick[data-id="'+m.id+'"]'); if(tick) tick.classList.add('hi');
+  const row=$('#cliplist .clip[data-id="'+m.id+'"]');
+  if(row){ row.classList.add('railhi'); row.scrollIntoView({block:'nearest'}); }
+  const card=$('#railcard'); card.innerHTML=railCardHTML(m);
+  const markX = r.left + (m.t+(+S.offset||0))/D*r.width;
+  card.style.display='block';
+  const half=card.offsetWidth/2;
+  card.style.left = Math.max(half+4, Math.min(window.innerWidth-half-4, markX))+'px';
+  card.style.top  = Math.max(4, r.top - card.offsetHeight - 6)+'px';
+}
 $('#rail').addEventListener('mousemove',e=>{
   const tip=$('#railtip'), hov=$('#railhover');
-  if(!vid.duration){ tip.style.display=hov.style.display='none'; return; }
+  if(!vid.duration){ tip.style.display=hov.style.display='none'; clearRailHover(); return; }
+  clearTimeout(railHideT);
   const r=e.currentTarget.getBoundingClientRect();
   const x=Math.max(0, Math.min(r.width, e.clientX-r.left));
-  tip.textContent = fmtClock(x/r.width*vid.duration);
-  tip.style.display=hov.style.display='block';
-  hov.style.left=x+'px';
-  const half=tip.offsetWidth/2;
-  tip.style.left=Math.max(half, Math.min(r.width-half, x))+'px';
+  const D=vid.duration;
+  /* nearest mark to the pointer, in pixels */
+  let near=null, nd=1e9;
+  S.marks.forEach(m=>{ const mx=(m.t+(+S.offset||0))/D*r.width; const d=Math.abs(mx-x); if(d<nd){ nd=d; near=m; } });
+  hov.style.display='block'; hov.style.left=x+'px';
+  if(near && nd<=12){                 /* on a mark → clip card + panel highlight */
+    tip.style.display='none';
+    if(!railHoverMark || railHoverMark.id!==near.id) showRailCardFor(near, r);
+  } else {                            /* open bar → plain time preview */
+    if(railHoverMark) clearRailHover();
+    tip.textContent = fmtClock(x/r.width*D);
+    tip.style.display='block';
+    const half=tip.offsetWidth/2;
+    tip.style.left=Math.max(half, Math.min(r.width-half, x))+'px';
+  }
 });
-$('#rail').addEventListener('mouseleave',()=>{ $('#railtip').style.display='none'; $('#railhover').style.display='none'; });
+$('#rail').addEventListener('mouseleave',()=>{
+  $('#railtip').style.display='none'; $('#railhover').style.display='none';
+  railHideT=setTimeout(clearRailHover, 160);   /* grace period so the pointer can reach the card */
+});
+$('#railcard').addEventListener('mouseenter',()=>clearTimeout(railHideT));
+$('#railcard').addEventListener('mouseleave',clearRailHover);
+$('#railcard').addEventListener('click',()=>{ if(railHoverMark){ const m=railHoverMark; clearRailHover(); selectClip(m); }});
 
 /* ============================================================
    TELESTRATION
