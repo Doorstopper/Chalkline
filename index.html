@@ -324,6 +324,14 @@ textarea,input[type=text],input[type=number],select{
 textarea{resize:vertical;min-height:56px;line-height:1.45}
 .count{font-family:var(--mono);font-size:10px;color:var(--chalk-dim);margin-top:4px;display:flex;justify-content:space-between}
 .count.over{color:var(--theirs)}
+/* compact colour + position pickers for the "Apply to clip" text */
+.minicols{display:flex;gap:5px}
+.minicols button{width:18px;height:18px;border-radius:50%;border:2px solid transparent;padding:0;cursor:pointer}
+.minicols button[aria-pressed="true"]{border-color:var(--chalk)}
+.posgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;width:max-content}
+.posgrid button{width:17px;height:13px;border:1px solid var(--line);background:var(--turf);border-radius:2px;padding:0;cursor:pointer}
+.posgrid button:hover{border-color:var(--chalk-dim)}
+.posgrid button[aria-pressed="true"]{background:var(--flood);border-color:var(--flood)}
 .prompt{
   border-left:2px solid var(--flood);padding:6px 0 6px 9px;color:var(--chalk-dim);
   font-size:12px;line-height:1.5;font-style:italic;
@@ -678,6 +686,16 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <span class="eyebrow">Notes / text on the clip</span>
           <textarea id="clipnotes" placeholder="Coaching points, bullet lists — write freely, then Apply to place it on the clip" style="min-height:88px"></textarea>
         </label>
+        <div style="display:flex;gap:16px;align-items:flex-start;margin:6px 0 5px">
+          <div>
+            <div class="eyebrow" style="margin-bottom:4px">Text colour</div>
+            <div class="minicols" id="notecols"></div>
+          </div>
+          <div>
+            <div class="eyebrow" style="margin-bottom:4px">Position</div>
+            <div class="posgrid" id="notepos"></div>
+          </div>
+        </div>
         <button class="btn small" id="applynotes" type="button" style="width:100%;margin-top:2px">＋ Apply to clip</button>
         <div class="hint">Drops this text onto the clip as a movable text box (same as drawing a Text mark, but typed here). Drag to reposition, double-click on the clip to edit. Apply again to update it.</div>
 
@@ -1683,6 +1701,8 @@ function selectClip(m){
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
   $('#clipnotes').value = m.notes || '';
+  const nm=m.shapes.find(x=>x.tool==='text'&&x._notes); if(nm) notesColor=nm.color;
+  if(typeof renderNotePicker==='function') renderNotePicker();
   $('#clipplayerinp').disabled=false; renderClipPlayers();
   $('#askprompt').textContent = m.ask || 'Ask them what they saw before you tell them what you saw.';
   const rc=$('#recat'); rc.disabled=false; rc.innerHTML='';
@@ -1723,18 +1743,58 @@ $('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value|
 $('#caption').addEventListener('input',()=>{ if(curClip){ curClip.caption=$('#caption').value; touch(curClip); updateCap(); renderClips(); save(); }});
 $('#clipnotes').addEventListener('input',()=>{ if(curClip){ curClip.notes=$('#clipnotes').value; touch(curClip); save(); }});
 
+/* Colour + one of nine positions for the "Apply to clip" text. */
+let notesColor='ours', notesPos={col:0,row:0};
+function findNotesMark(){ return curClip && curClip.shapes.find(x=>x.tool==='text' && x._notes); }
+/* anchor the text at the chosen 3×3 zone, measuring the text so centre/right/
+   bottom actually line up rather than overflowing */
+function placeNotes(s, col, row){
+  const W=draw.width||900, H=draw.height||506, scale=Math.max(1,W/900);
+  const mc=placeNotes._mc||(placeNotes._mc=document.createElement('canvas').getContext('2d'));
+  const m=textMetrics(s, mc, W, scale);
+  const bwn=Math.min(0.92, m.boxW/W), bhn=Math.min(0.9, (m.lines.length*m.lh)/H);
+  const xs=[0.04, 0.5-bwn/2, 0.96-bwn], ys=[0.06, 0.5-bhn/2, 0.94-bhn];
+  s.a={ x:Math.max(0.01,Math.min(0.98,xs[col])), y:Math.max(0.02,Math.min(0.96,ys[row])) };
+}
+function renderNotePicker(){
+  const cw=$('#notecols'); if(!cw) return;
+  cw.innerHTML='';
+  ['ours','theirs','space','path','ball'].forEach(k=>{
+    const b=document.createElement('button'); b.type='button'; b.title=COLORS[k].name;
+    b.style.background=COLORS[k].hex; b.setAttribute('aria-pressed', k===notesColor);
+    b.addEventListener('click',()=>{ notesColor=k;
+      const s=findNotesMark(); if(s){ s.color=k; commit(); }   /* recolour live if already placed */
+      renderNotePicker();
+    });
+    cw.appendChild(b);
+  });
+  const pg=$('#notepos'); pg.innerHTML='';
+  const rl=['Top','Middle','Bottom'], cl=['left','centre','right'];
+  for(let row=0;row<3;row++) for(let col=0;col<3;col++){
+    const b=document.createElement('button'); b.type='button'; b.title=rl[row]+' '+cl[col];
+    b.setAttribute('aria-pressed', notesPos.col===col && notesPos.row===row);
+    b.addEventListener('click',()=>{ notesPos={col,row};
+      const s=findNotesMark(); if(s){ placeNotes(s,col,row); commit(); }   /* move it live if already placed */
+      renderNotePicker();
+    });
+    pg.appendChild(b);
+  }
+}
+renderNotePicker();
+
 /* Stamp the notes box onto the clip as a real, movable/editable text mark — the
    same kind you'd draw with the Text tool, but typed here. Re-applying updates
-   the box it created rather than stacking duplicates. */
+   the box it created (keeping any manual drag) rather than stacking duplicates. */
 function applyNotesToClip(){
   if(!curClip) return toast('Pick a clip first');
   const txt=$('#clipnotes').value.replace(/\s+$/,'');
   if(!txt.trim()) return toast('Write some notes first');
-  let s = curClip.shapes.find(x=>x.tool==='text' && x._notes);
-  if(s){ s.text=txt; }
+  let s = findNotesMark();
+  if(s){ s.text=txt; s.color=notesColor; }               /* update text/colour, keep its position */
   else{
-    s={tool:'text', _notes:true, color, a:{x:0.05,y:0.12}, text:txt, fs:textSize, w:0.42, t:beatSnap()};
+    s={tool:'text', _notes:true, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, w:0.42, t:beatSnap()};
     curClip.shapes.push(s);
+    placeNotes(s, notesPos.col, notesPos.row);            /* place a new one at the chosen zone */
   }
   selection=[s]; commit();
   toast('Text placed on the clip — drag to move it, double-click to edit');
