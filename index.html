@@ -674,6 +674,13 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </label>
         <div class="count" id="capcount"><span>0 words</span><span>aim for 15</span></div>
 
+        <label class="field" style="margin-top:9px">
+          <span class="eyebrow">Notes / text on the clip</span>
+          <textarea id="clipnotes" placeholder="Coaching points, bullet lists — write freely, then Apply to place it on the clip" style="min-height:88px"></textarea>
+        </label>
+        <button class="btn small" id="applynotes" type="button" style="width:100%;margin-top:2px">＋ Apply to clip</button>
+        <div class="hint">Drops this text onto the clip as a movable text box (same as drawing a Text mark, but typed here). Drag to reposition, double-click on the clip to edit. Apply again to update it.</div>
+
         <div class="prompt" id="askprompt">Pick a clip to get a question to ask.</div>
 
         <div class="sep"></div>
@@ -1675,6 +1682,7 @@ function selectClip(m){
   resetUndo();
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
+  $('#clipnotes').value = m.notes || '';
   $('#clipplayerinp').disabled=false; renderClipPlayers();
   $('#askprompt').textContent = m.ask || 'Ask them what they saw before you tell them what you saw.';
   const rc=$('#recat'); rc.disabled=false; rc.innerHTML='';
@@ -1713,6 +1721,25 @@ $('#offset').addEventListener('input',()=>{ S.offset=+$('#offset').value||0; ren
 $('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value||25); save(); });
 
 $('#caption').addEventListener('input',()=>{ if(curClip){ curClip.caption=$('#caption').value; touch(curClip); updateCap(); renderClips(); save(); }});
+$('#clipnotes').addEventListener('input',()=>{ if(curClip){ curClip.notes=$('#clipnotes').value; touch(curClip); save(); }});
+
+/* Stamp the notes box onto the clip as a real, movable/editable text mark — the
+   same kind you'd draw with the Text tool, but typed here. Re-applying updates
+   the box it created rather than stacking duplicates. */
+function applyNotesToClip(){
+  if(!curClip) return toast('Pick a clip first');
+  const txt=$('#clipnotes').value.replace(/\s+$/,'');
+  if(!txt.trim()) return toast('Write some notes first');
+  let s = curClip.shapes.find(x=>x.tool==='text' && x._notes);
+  if(s){ s.text=txt; }
+  else{
+    s={tool:'text', _notes:true, color, a:{x:0.05,y:0.12}, text:txt, fs:textSize, w:0.42, t:beatSnap()};
+    curClip.shapes.push(s);
+  }
+  selection=[s]; commit();
+  toast('Text placed on the clip — drag to move it, double-click to edit');
+}
+$('#applynotes').addEventListener('click', applyNotesToClip);
 
 /* Highlight / Learning: tag a clip so it can be pulled into a Highlights-only or
    Learning-only reel. Mutually exclusive; click again to clear. */
