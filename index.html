@@ -468,9 +468,10 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   <section id="studio" class="view">
 
     <div class="col">
-      <div class="colhead">
+      <div class="colhead" style="gap:5px">
         <span class="eyebrow">Clips</span>
         <button class="tbtn" id="syncbtn2">Sync</button>
+        <button class="tbtn" id="savemarks2" title="Save all clips + markup to a file">Save</button>
         <button class="tbtn" id="loadmarks">Open</button>
       </div>
       <div class="colhead" style="gap:8px">
@@ -1176,10 +1177,15 @@ $('#resetbtn').addEventListener('click',async ()=>{
   renderLog(); renderClips(); drawRail(); save(); toast('Session cleared');
 });
 
-$('#savemarks').addEventListener('click',()=>{
+function saveMarksFile(){
+  if(!S.marks.length) return toast('No clips to save yet');
+  const base = (S.videoName||'').replace(/\.[^.]+$/,'').replace(/[^\w-]+/g,'-').replace(/^-+|-+$/g,'');
   download(new Blob([JSON.stringify({marks:S.marks, pads:S.pads, offset:S.offset},null,2)],{type:'application/json'}),
-    'chalkline-marks-'+stamp()+'.json');
-});
+    'chalkline-marks-'+(base?base+'-':'')+stamp()+'.json');
+  toast(S.marks.length+(S.marks.length===1?' clip':' clips')+' saved to a file');
+}
+$('#savemarks').addEventListener('click', saveMarksFile);
+$('#savemarks2').addEventListener('click', saveMarksFile);
 
 /* pad editor */
 $('#editpads').addEventListener('click',()=>{
