@@ -247,7 +247,10 @@ button{cursor:pointer;border:none;background:none}
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .railcard .rgo{margin-top:5px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:#8FC4FF;text-transform:uppercase}
 .railwin{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.14);border-left:1px solid var(--flood);border-right:1px solid var(--flood)}
-.railhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--chalk);pointer-events:none}
+.railhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--chalk);pointer-events:none;z-index:4}
+/* Dropbox-Replay-style progress fill: a solid line along the top edge that
+   grows left→right with playback, on top of the clip ticks and stripe */
+.railprog{position:absolute;top:0;left:0;height:3px;background:var(--chalk);pointer-events:none;z-index:3}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -528,6 +531,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
       <div class="transport">
         <div class="rail" id="rail">
           <div class="railwin" id="railwin" style="display:none"></div>
+          <div class="railprog" id="railprog" style="width:0"></div>
           <div class="railhover" id="railhover"></div>
           <div class="railhead" id="railhead" style="left:0"></div>
           <div class="railtip" id="railtip"></div>
@@ -2103,7 +2107,11 @@ let marksHidden = false;
 let gripsOn = false;
 function updateTC(){
   $('#tcode').innerHTML = fmtTC(vid.currentTime)+' <small>/ '+fmtClock(vid.duration||0)+'</small>';
-  if(vid.duration) $('#railhead').style.left = (vid.currentTime/vid.duration*100)+'%';
+  if(vid.duration){
+    const pct = vid.currentTime/vid.duration*100;
+    $('#railhead').style.left = pct+'%';
+    $('#railprog').style.width = pct+'%';   /* progress fill along the top edge */
+  }
   /* Live freeze: while reviewing, pause at the frame you marked, hold for the
      Freeze-hold seconds, then carry on. */
   if(autoFreeze && !marksHidden && !exporting && curClip && !vid.paused){
