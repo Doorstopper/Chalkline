@@ -1790,10 +1790,10 @@ function applyNotesToClip(){
   const txt=$('#clipnotes').value.replace(/\s+$/,'');
   if(!txt.trim()) return toast('Write some notes first');
   let s = findNotesMark();
-  if(s){ s.text=txt; s.color=notesColor; }               /* update text/colour, keep its position */
+  if(s){ s.text=txt; s.color=notesColor; delete s.w; }    /* update text/colour, keep position, auto-size to text */
   else{
-    s={tool:'text', _notes:true, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, w:0.42, t:beatSnap()};
-    curClip.shapes.push(s);
+    s={tool:'text', _notes:true, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, t:beatSnap()};
+    curClip.shapes.push(s);                                /* no fixed width → the box hugs the text */
     placeNotes(s, notesPos.col, notesPos.row);            /* place a new one at the chosen zone */
   }
   selection=[s]; commit();
