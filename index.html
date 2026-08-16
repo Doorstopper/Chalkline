@@ -2373,9 +2373,23 @@ function pt(e){
   const r=draw.getBoundingClientRect();
   return {x:(e.clientX-r.left)/r.width, y:(e.clientY-r.top)/r.height};
 }
+/* Can a press-and-drag here grab the picture and pan it? Only when zoomed in.
+   While the video is PLAYING you're watching, not drawing, so a grab always
+   pans. When it's PAUSED, panning only kicks in on empty space with no tool
+   (so drawing and moving marks still work as normal). */
+function canGrabPan(p){
+  if(viewZoom<=1 || editingShape || panMode || loupeOn) return false;
+  if(!vid.paused) return true;
+  return !tool && !(curClip && pickHandle(p));
+}
 draw.addEventListener('pointerdown', e=>{
   if(panMode){ panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return; }
   if(loupeOn){ draw.setPointerCapture(e.pointerId); moveLoupe(e); return; }
+  /* Zoomed in: grab the picture and drag to pan — works while it's playing and
+     even before you've picked a clip (see canGrabPan). */
+  if(canGrabPan(pt(e))){
+    panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return;
+  }
   if(!curClip) return toast('Pick a clip first');
   /* an open inline text box commits on any click elsewhere (a canvas can't blur
      itself, so we close it here) and that click is consumed */
@@ -2395,11 +2409,7 @@ draw.addEventListener('pointerdown', e=>{
     beginMove(p, hit); render(); return;
   }
   if(!e.shiftKey && selection.length){ selection=[]; render(); }
-  if(!tool){
-    /* zoomed in with no tool: grab the frame and drag to pan to an off-centre play */
-    if(viewZoom>1){ panning={x:e.clientX,y:e.clientY}; return; }
-    marquee={a:p,b:p,add:e.shiftKey}; return;   /* otherwise drag a selection box */
-  }
+  if(!tool){ marquee={a:p,b:p,add:e.shiftKey}; return; }   /* no tool, not panning: drag a selection box */
   if(tool==='disc'){ createMarkerInline(p); return; }
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'||tool==='runpen'){ dragging={tool,color,pts:[p]}; return; }
@@ -2425,8 +2435,10 @@ draw.addEventListener('pointermove', e=>{
     else dragging.b=p;
     render(); return;
   }
-  /* idle hover: show a move cursor over anything grabbable */
-  if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : (viewZoom>1 ? 'grab' : 'default'));
+  /* idle hover: grab cursor when a drag would pan, else the usual move/draw cursors */
+  if(canGrabPan(p)) draw.style.cursor='grab';
+  else if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
+  else draw.style.cursor='default';
 });
 draw.addEventListener('pointerup', ()=>{
   if(panning){ panning=null; return; }
