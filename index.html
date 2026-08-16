@@ -863,6 +863,16 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   </div>
 </dialog>
 
+<dialog id="switchdlg">
+  <div class="dlghead"><span class="eyebrow">Opening a new game</span></div>
+  <div class="dlgbody" style="padding:14px 16px;line-height:1.55" id="switchtext"></div>
+  <div class="dlgfoot" style="flex-wrap:wrap;gap:8px">
+    <button class="btn small" id="switchcancel">Cancel</button>
+    <button class="btn small danger" id="switchdiscard">Open without saving</button>
+    <button class="btn small primary" id="switchsave">Save clips, then open</button>
+  </div>
+</dialog>
+
 <dialog id="padsdlg">
   <div class="dlghead"><span class="eyebrow">Edit pads</span></div>
   <div class="dlgbody">
@@ -1041,6 +1051,26 @@ function confirmBox(text){
   });
 }
 
+/* Three-way choice when opening a new game over an unsaved one:
+   'save' (export then continue), 'discard' (continue, drop them), 'cancel'. */
+function switchBox(text){
+  return new Promise(res=>{
+    const d=$('#switchdlg');
+    $('#switchtext').textContent=text;
+    const done=v=>{ d.close(); cleanup(); res(v); };
+    const save=()=>done('save'), discard=()=>done('discard'), cancel=()=>done('cancel');
+    function cleanup(){
+      $('#switchsave').removeEventListener('click',save);
+      $('#switchdiscard').removeEventListener('click',discard);
+      $('#switchcancel').removeEventListener('click',cancel);
+    }
+    $('#switchsave').addEventListener('click',save);
+    $('#switchdiscard').addEventListener('click',discard);
+    $('#switchcancel').addEventListener('click',cancel);
+    d.showModal();
+  });
+}
+
 /* Silent failures are worse than loud ones — surface anything that escapes.
    "Script error." with no detail usually means a sandboxed frame blocked an API. */
 window.addEventListener('error', e=>{
@@ -1212,8 +1242,22 @@ const vid = $('#vid'), draw = $('#draw'), ctx = draw.getContext('2d');
 let curClip = null, loop = true, fps = 25;
 
 let vidURL=null;
-function loadVideo(file){
+async function loadVideo(file){
   if(!file) return;
+  /* Opening a different game? Its clips belong to a different video's timeline,
+     so don't silently carry the old game's clips in. Offer to save them first,
+     then start clean. Same filename = reopening the same match, so keep them. */
+  if(S.marks.length && S.videoName && file.name !== S.videoName){
+    const choice = await switchBox(
+      `You have ${S.marks.length} clip${S.marks.length===1?'':'s'} from “${S.videoName}”.\n\n`+
+      `They belong to that video, so opening “${file.name}” will clear them. `+
+      `Save them to a file first?`);
+    if(choice==='cancel') return;              /* keep the current game as-is */
+    if(choice==='save') saveMarksFile();        /* download the clips file, then clear */
+    (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
+    S.marks=[]; curClip=null;
+    renderClips(); renderLog(); drawRail(); save();
+  }
   if(vidURL) URL.revokeObjectURL(vidURL);
   vidURL = URL.createObjectURL(file);
 
@@ -1272,8 +1316,9 @@ $('#vidfile').addEventListener('change',e=>loadVideo(e.target.files[0]));
     const f=[...e.dataTransfer.files];
     const v=f.find(x=>x.type.startsWith('video/')||/\.(mp4|mov|m4v|mkv|webm|avi)$/i.test(x.name));
     const j=f.find(x=>x.name.endsWith('.json'));
-    if(v) loadVideo(v);
-    if(j) readMarksFile(j);
+    /* load the video first (it may prompt to clear old clips) THEN the marks
+       file, so a dropped-together pair doesn't get its marks wiped by the prompt */
+    (async()=>{ if(v) await loadVideo(v); if(j) readMarksFile(j); })();
   }
 }));
 
