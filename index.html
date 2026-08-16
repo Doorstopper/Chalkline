@@ -224,6 +224,19 @@ button{cursor:pointer;border:none;background:none}
 #dropzone code{font-family:var(--mono);background:#0A130E;padding:3px 6px;border-radius:2px;display:inline-block;margin-top:4px;word-break:break-all;color:var(--flood)}
 
 .transport{border-top:1px solid var(--line);background:var(--turf);padding:8px 12px 11px;flex:none}
+/* Immersive / full-screen watch mode: the stage fills the screen, the video
+   fills it, and the transport + tag bar become a bottom overlay that auto-hides
+   while playing and returns on any mouse move or key. */
+.stage.imm{background:#000;position:relative}
+.stage.imm .canvaswrap{padding:0}
+.stage.imm .transport{
+  position:absolute;left:0;right:0;bottom:0;z-index:30;border-top:none;background:transparent;
+  padding-top:28px;
+  background-image:linear-gradient(to top, rgba(6,13,10,.96), rgba(6,13,10,.62) 55%, rgba(6,13,10,0));
+  transition:opacity .22s ease, transform .22s ease;
+}
+.stage.imm.hideui .transport{opacity:0;transform:translateY(12px);pointer-events:none}
+.stage.imm.hideui{cursor:none}
 .rail{
   position:relative;height:34px;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);
   cursor:pointer;overflow:hidden;
@@ -572,6 +585,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="zoomin" title="Zoom the whole picture in">Zoom +</button>
           <button class="tbtn" id="panbtn" aria-pressed="false" title="When zoomed in, drag the picture to pan around">✋ Pan</button>
           <button class="tbtn" id="loupebtn" aria-pressed="false" title="Magnifying glass — move it over the video to enlarge that spot">🔍 Loupe</button>
+          <button class="tbtn" id="fsbtn" title="Full screen (F) — watch big; the controls hide while playing and pop back the moment you move the mouse">⛶ Full screen</button>
         </div>
         <div class="tagbar" id="tagbar">
           <span class="eyebrow" style="flex:none">Tag as you watch</span>
@@ -1830,9 +1844,44 @@ function watchFrameRate(){
   };
   vid.requestVideoFrameCallback(tick);
 }
-vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); });
-vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); });
+vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); if(immersive) immShow(); });
+vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); if(immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); } });
 vid.addEventListener('timeupdate', updateTC);
+
+/* ---------- immersive / full-screen watch mode ----------
+   Full-screen the stage so the video fills the screen. While playing, the
+   controls overlay + cursor auto-hide after a short idle; any mouse move or key
+   brings them straight back. Paused (e.g. to draw or make a clip) keeps them up. */
+const stageEl = document.querySelector('#studio .stage');
+let immersive=false, immIdleT=null;
+function inFullscreen(){ return document.fullscreenElement || document.webkitFullscreenElement || null; }
+function immShow(){
+  if(!immersive) return;
+  stageEl.classList.remove('hideui');
+  clearTimeout(immIdleT);
+  if(!vid.paused) immIdleT=setTimeout(()=>{ if(immersive && !vid.paused) stageEl.classList.add('hideui'); }, 2600);
+}
+function toggleImmersive(){
+  if(!vid.src) return toast('Load a video first');
+  if(inFullscreen()){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); return; }
+  const req = stageEl.requestFullscreen || stageEl.webkitRequestFullscreen;
+  if(!req) return toast('Full screen isn’t supported in this browser');
+  Promise.resolve(req.call(stageEl)).catch(()=>toast('Full screen was blocked'));
+}
+function onFSChange(){
+  const now = inFullscreen()===stageEl;
+  if(now===immersive) return;
+  immersive=now;
+  stageEl.classList.toggle('imm', immersive);
+  if(!immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); }
+  const b=$('#fsbtn'); if(b) b.textContent = immersive ? '⛶ Exit full screen' : '⛶ Full screen';
+  setTimeout(fitCanvas, 60);   /* re-letterbox to the new size */
+  if(immersive) immShow();
+}
+document.addEventListener('fullscreenchange', onFSChange);
+document.addEventListener('webkitfullscreenchange', onFSChange);
+document.addEventListener('mousemove', ()=>{ if(immersive) immShow(); });
+$('#fsbtn').addEventListener('click', toggleImmersive);
 /* re-arm the live freeze whenever we move back before the marked frame */
 vid.addEventListener('seeked',()=>{ liveFrozeAt=null; if(!curClip) return;
   for(const s of curClip.shapes){ if(s.t!=null && vid.currentTime < s.t-0.1) liveFrozeSet.delete(Math.round(s.t*10)); } });
@@ -4094,7 +4143,9 @@ function nudgeCommitSoon(){ clearTimeout(nudgeCommitT); nudgeCommitT=setTimeout(
 document.addEventListener('keydown',e=>{
   if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
   if(!$('#studio').classList.contains('on')) return;
+  if(immersive) immShow();                 /* any key counts as activity — reveal the controls */
   const mod = e.metaKey||e.ctrlKey;
+  if((e.key==='f'||e.key==='F') && !mod){ e.preventDefault(); toggleImmersive(); return; }
   if(e.key==='Escape' && loupeOn){ e.preventDefault(); setLoupe(false); return; }
   if(e.key==='Escape' && chaining){ e.preventDefault(); cancelChain(false); return; }
   if(e.key==='Enter' && chaining){ e.preventDefault(); cancelChain(true); return; }
