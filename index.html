@@ -484,6 +484,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
       </div>
       <datalist id="playernames"></datalist>
       <div class="scroll" id="cliplist"></div>
+      <div style="padding:8px 12px 0;text-align:right">
+        <button class="btn small danger" id="clearclips" title="Remove every clip and its markup from this session">Clear all clips</button>
+      </div>
       <div class="colhead" style="border-bottom:none;border-top:1px solid var(--line);gap:8px">
         <label class="eyebrow" style="flex:1;white-space:nowrap">Offset (s)
           <input type="number" id="offset" step="0.5" value="0" style="margin-top:4px">
@@ -1216,6 +1219,19 @@ function saveMarksFile(){
 }
 $('#savemarks').addEventListener('click', saveMarksFile);
 $('#savemarks2').addEventListener('click', saveMarksFile);
+
+async function clearAllClips(){
+  if(!S.marks.length) return toast('No clips to clear');
+  const n=S.marks.length;
+  if(!await confirmBox(
+    `Clear all ${n} clip${n===1?'':'s'} and their markup from this session? `+
+    `Save them first with the Save button if you want to keep them — this can’t be undone.`)) return;
+  (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
+  S.marks=[]; curClip=null;
+  renderClips(); renderLog(); drawRail(); render(); save();
+  toast('All clips cleared');
+}
+$('#clearclips').addEventListener('click', clearAllClips);
 
 /* pad editor */
 $('#editpads').addEventListener('click',()=>{
