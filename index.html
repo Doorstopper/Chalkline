@@ -591,7 +591,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="zoomout" title="Zoom the whole picture out">Zoom −</button>
           <button class="tbtn" id="zoomlvl" title="Current zoom — click to reset to 100%">100%</button>
           <button class="tbtn" id="zoomin" title="Zoom the whole picture in">Zoom +</button>
-          <button class="tbtn" id="panbtn" aria-pressed="false" title="When zoomed in, drag the picture to pan around">✋ Pan</button>
+          <button class="tbtn" id="panbtn" aria-pressed="false" title="Pan turns on automatically when you zoom in, so just drag to move the picture. Click here to switch to Draw when you want to mark up a zoomed-in frame.">✋ Pan</button>
           <button class="tbtn" id="loupebtn" aria-pressed="false" title="Magnifying glass — move it over the video to enlarge that spot">🔍 Loupe</button>
           <button class="tbtn" id="fsbtn" title="Full screen (F) — watch big; the controls hide while playing and pop back the moment you move the mouse">⛶ Full screen</button>
         </div>
@@ -2063,13 +2063,20 @@ $('#gripsbtn').addEventListener('click',()=>{
    • Whole-screen zoom — CSS-scale #vidbox (video + marks together) and pan.
    • Loupe — a circular magnified duplicate video that follows the pointer. */
 let viewZoom=1, viewPanX=0, viewPanY=0, panMode=false, panning=null;
+/* Pan is a mode: on = drag moves the picture, off = drag draws. The Pan button
+   reflects it and the grip cursor follows. */
+function setPanMode(on){
+  panMode=!!on;
+  const pb=$('#panbtn'); if(pb) pb.setAttribute('aria-pressed', panMode);   /* highlighted = pan on; click to switch to Draw */
+  draw.classList.toggle('panning', panMode);
+}
 function applyViewTransform(){
   const box=$('#vidbox');
   if(viewZoom<=1.001){ viewZoom=1; viewPanX=viewPanY=0; box.style.transform='none'; }
   else { box.style.transformOrigin='center center';
     box.style.transform=`translate(${viewPanX}px,${viewPanY}px) scale(${viewZoom})`; }
   const lvl=$('#zoomlvl'); if(lvl) lvl.textContent=Math.round(viewZoom*100)+'%';
-  const pb=$('#panbtn'); if(pb && viewZoom===1 && panMode){ panMode=false; pb.setAttribute('aria-pressed','false'); draw.classList.remove('panning'); }
+  if(viewZoom===1 && panMode) setPanMode(false);   /* back to 100% → drawing again */
 }
 function clampPan(){
   const w=document.querySelector('.canvaswrap').getBoundingClientRect();
@@ -2086,15 +2093,14 @@ function setZoom(z, sx, sy){
   viewZoom=next;
   viewPanX=fx-r*(fx-viewPanX); viewPanY=fy-r*(fy-viewPanY);
   clampPan(); applyViewTransform();
+  if(prev<=1 && next>1) setPanMode(true);   /* zooming in turns pan on by default — drag moves the picture, no button needed */
 }
 $('#zoomin').addEventListener('click',()=>setZoom(viewZoom+0.25));
 $('#zoomout').addEventListener('click',()=>setZoom(viewZoom-0.25));
 $('#zoomlvl').addEventListener('click',()=>setZoom(1));
 $('#panbtn').addEventListener('click',()=>{
-  panMode=!panMode;
-  if(panMode && viewZoom===1) setZoom(2);        /* nothing to pan at 100% — zoom in first */
-  $('#panbtn').setAttribute('aria-pressed', panMode);
-  draw.classList.toggle('panning', panMode);
+  if(!panMode && viewZoom===1) setZoom(2);   /* nothing to pan at 100% — zoom in (which also turns pan on) */
+  else setPanMode(!panMode);                 /* otherwise just flip pan/draw */
 });
 /* wheel over the picture zooms toward the cursor */
 document.querySelector('.canvaswrap').addEventListener('wheel', e=>{
@@ -2464,22 +2470,17 @@ function pt(e){
    While the video is PLAYING you're watching, not drawing, so a grab always
    pans. When it's PAUSED, panning only kicks in on empty space with no tool
    (so drawing and moving marks still work as normal). */
+/* Pan mode turns on automatically when you zoom in (see setZoom), so a plain
+   drag moves the picture with no button press. It still pans while playing even
+   if you've switched pan off to draw. */
 function canGrabPan(p){
   if(viewZoom<=1 || editingShape || panMode || loupeOn) return false;
   if(!vid.paused) return true;
   return !tool && !(curClip && pickHandle(p));
 }
 draw.addEventListener('pointerdown', e=>{
-  /* Dedicated grab-to-pan that never fights the left-button drawing tools:
-     right- or middle-button drag, or Alt/Option + drag. Works whenever the
-     picture is zoomed in — PAUSED or playing, with a tool selected or not. */
-  if(viewZoom>1 && !loupeOn && (e.button===1 || e.button===2 || e.altKey)){
-    e.preventDefault(); panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return;
-  }
   if(panMode){ panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return; }
   if(loupeOn){ draw.setPointerCapture(e.pointerId); moveLoupe(e); return; }
-  /* Zoomed in: grab the picture and drag to pan — works while it's playing and
-     even before you've picked a clip (see canGrabPan). */
   if(canGrabPan(pt(e))){
     panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return;
   }
@@ -2529,12 +2530,10 @@ draw.addEventListener('pointermove', e=>{
     render(); return;
   }
   /* idle hover: grab cursor when a drag would pan, else the usual move/draw cursors */
-  if((viewZoom>1 && e.altKey) || canGrabPan(p)) draw.style.cursor='grab';
+  if(canGrabPan(p)) draw.style.cursor='grab';
   else if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
   else draw.style.cursor='default';
 });
-/* right-drag pans, so don't pop the browser menu on the canvas when zoomed */
-draw.addEventListener('contextmenu', e=>{ if(viewZoom>1) e.preventDefault(); });
 draw.addEventListener('pointerup', ()=>{
   if(panning){ panning=null; return; }
   if(loupeOn){ return; }
