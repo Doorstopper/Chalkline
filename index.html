@@ -603,6 +603,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <input type="number" id="taglag" value="1" min="0" max="5" step="0.5"
                    style="width:52px;padding:4px 6px" title="Seconds subtracted to allow for your reaction time">
           </label>
+          <button class="tbtn" id="autoeditbtn" type="button" aria-pressed="false" style="flex:none"
+                  title="When on, a clip you tag jumps back and loops straight away so you can edit it. When off, the video keeps playing.">⟳ Edit on tag</button>
         </div>
       </div>
     </div>
@@ -2203,17 +2205,19 @@ function tagNow(i, btn){
      lands late and the pre-roll has to absorb it */
   const lag = vid.paused ? 0 : (+$('#taglag').value||0);
   const at = Math.max(0, vid.currentTime - lag) - (+S.offset||0);
-  S.marks.push({
+  const m={
     id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
     t:at, padIndex:i, label:p.label, color:p.color,
     pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[],
     player:(S.defaultPlayer||'').trim(), u:Date.now()
-  });
+  };
+  S.marks.push(m);
   btn = btn || $('#tagpads').children[i];
   if(btn){ btn.classList.add('hit'); setTimeout(()=>btn.classList.remove('hit'),150); }
   loopArmed = false;
   renderClips(); renderLog(); drawRail(); save();
-  toast(p.label+' at '+fmtClock(at));
+  if(S.autoEditNew){ selectClip(m); toast(p.label+' — looping so you can edit it'); }   /* jump to the new clip and loop it */
+  else toast(p.label+' at '+fmtClock(at));
 }
 
 /* a one-off custom tag while you watch — type any label, mark drops at the
@@ -2224,17 +2228,26 @@ function customTag(){
   const at = Math.max(0, vid.currentTime - lag) - (+S.offset||0);
   ask('Custom tag — what is it?').then(label=>{
     label=(label||'').trim(); if(!label) return;
-    S.marks.push({
+    const m={
       id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
       t:at, padIndex:-1, label, color:'ball',
       pre:6, post:6, ask:'', caption:'', shapes:[],
       player:(S.defaultPlayer||'').trim(), u:Date.now()
-    });
+    };
+    S.marks.push(m);
     loopArmed=false;
     renderClips(); renderLog(); drawRail(); save();
-    toast(label+' at '+fmtClock(at));
+    if(S.autoEditNew){ selectClip(m); toast(label+' — looping so you can edit it'); }
+    else toast(label+' at '+fmtClock(at));
   });
 }
+$('#autoeditbtn').addEventListener('click',()=>{
+  S.autoEditNew=!S.autoEditNew;
+  $('#autoeditbtn').setAttribute('aria-pressed', S.autoEditNew);
+  save();
+  toast(S.autoEditNew ? 'A clip you tag will jump back and loop, ready to edit'
+                      : 'Tagging won’t interrupt playback');
+});
 
 let exporting = false, loopArmed = false;
 let autoFreeze = true, liveFrozeSet = new Set(), liveHoldT = null;
@@ -4508,7 +4521,7 @@ function save(quiet){
   if(!quiet) pendingLoud=true;
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
-    Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,marks:S.marks,tomb:S.tomb,offset:S.offset,
+    Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
                    fps,clock});
@@ -4528,6 +4541,8 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     /* one-time: add the Attacking default tag to older sessions (won't re-add if removed later) */
     S.padsV = d.padsV||0;
     S.lineWt = d.lineWt||1;
+    S.autoEditNew = !!d.autoEditNew;
+    { const ae=$('#autoeditbtn'); if(ae) ae.setAttribute('aria-pressed', S.autoEditNew); }
     if(S.padsV<1){
       if(!S.pads.some(p=>(p.label||'').toLowerCase()==='attacking'))
         S.pads=[...S.pads, {label:'Attacking',color:'path',pre:2,post:7,ask:'What was on before the final ball?'}];
