@@ -2470,6 +2470,12 @@ function canGrabPan(p){
   return !tool && !(curClip && pickHandle(p));
 }
 draw.addEventListener('pointerdown', e=>{
+  /* Dedicated grab-to-pan that never fights the left-button drawing tools:
+     right- or middle-button drag, or Alt/Option + drag. Works whenever the
+     picture is zoomed in — PAUSED or playing, with a tool selected or not. */
+  if(viewZoom>1 && !loupeOn && (e.button===1 || e.button===2 || e.altKey)){
+    e.preventDefault(); panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return;
+  }
   if(panMode){ panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return; }
   if(loupeOn){ draw.setPointerCapture(e.pointerId); moveLoupe(e); return; }
   /* Zoomed in: grab the picture and drag to pan — works while it's playing and
@@ -2523,10 +2529,12 @@ draw.addEventListener('pointermove', e=>{
     render(); return;
   }
   /* idle hover: grab cursor when a drag would pan, else the usual move/draw cursors */
-  if(canGrabPan(p)) draw.style.cursor='grab';
+  if((viewZoom>1 && e.altKey) || canGrabPan(p)) draw.style.cursor='grab';
   else if(curClip) draw.style.cursor = pickHandle(p) ? 'move' : (tool ? 'crosshair' : 'default');
   else draw.style.cursor='default';
 });
+/* right-drag pans, so don't pop the browser menu on the canvas when zoomed */
+draw.addEventListener('contextmenu', e=>{ if(viewZoom>1) e.preventDefault(); });
 draw.addEventListener('pointerup', ()=>{
   if(panning){ panning=null; return; }
   if(loupeOn){ return; }
