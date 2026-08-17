@@ -1791,11 +1791,12 @@ function applyNotesToClip(){
   if(!curClip) return toast('Pick a clip first');
   const txt=$('#clipnotes').value.replace(/\s+$/,'');
   if(!txt.trim()) return toast('Write some notes first');
+  const start = clipStart(curClip);                        /* anchor at the clip start so it shows the whole clip */
   let s = findNotesMark();
-  if(s){ s.text=txt; s.color=notesColor; delete s.w; }    /* update text/colour, keep position, auto-size to text */
+  if(s){ s.text=txt; s.color=notesColor; delete s.w; s.keep=1; s.t=start; }   /* update text/colour, keep position, stay on whole clip */
   else{
-    s={tool:'text', _notes:true, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, t:beatSnap()};
-    curClip.shapes.push(s);                                /* no fixed width → the box hugs the text */
+    s={tool:'text', _notes:true, keep:1, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, t:start};
+    curClip.shapes.push(s);                                /* keep:1 → stays on the whole clip, not just the freeze */
     placeNotes(s, notesPos.col, notesPos.row);            /* place a new one at the chosen zone */
   }
   selection=[s]; commit();
@@ -2273,7 +2274,7 @@ function updateTC(){
     const h=+$('#hold').value||0;
     if(h>0){
       const now=vid.currentTime; let hit=null;
-      for(const s of curClip.shapes){ const t=s.t; if(t==null||s.tool==='ground') continue;
+      for(const s of curClip.shapes){ const t=s.t; if(t==null||s.tool==='ground'||s.keep) continue;
         if(now>=t && now<t+0.6 && !liveFrozeSet.has(Math.round(t*10)) && (hit==null||t<hit)) hit=t; }
       if(hit!=null){ liveFrozeSet.add(Math.round(hit*10)); liveFrozeAt=hit; vid.pause();
         clearTimeout(liveHoldT);
