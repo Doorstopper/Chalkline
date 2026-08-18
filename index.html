@@ -2013,8 +2013,15 @@ function tagNow(i, btn){
   if(btn){ btn.classList.add('hit'); setTimeout(()=>btn.classList.remove('hit'),150); }
   loopArmed = false;
   renderClips(); drawRail(); save();
-  if(S.autoEditNew){ selectClip(m); toast(p.label+' — looping so you can edit it'); }   /* jump to the new clip and loop it */
+  if(S.autoEditNew){ openAndLoop(m); toast(p.label+' — looping so you can edit it'); }   /* jump to the new clip and loop it */
   else toast(p.label+' at '+fmtClock(at));
+}
+/* open a clip and actually start it looping — selectClip only arms the loop, so
+   play too (the loop only runs while the video is playing) */
+function openAndLoop(m){
+  selectClip(m);
+  loopArmed = true;
+  if(vid.src && vid.paused){ const pr=vid.play(); if(pr&&pr.catch) pr.catch(()=>{}); }
 }
 
 /* a one-off custom tag while you watch — type any label, mark drops at the
@@ -2034,7 +2041,7 @@ function customTag(){
     S.marks.push(m);
     loopArmed=false;
     renderClips(); drawRail(); save();
-    if(S.autoEditNew){ selectClip(m); toast(label+' — looping so you can edit it'); }
+    if(S.autoEditNew){ openAndLoop(m); toast(label+' — looping so you can edit it'); }
     else toast(label+' at '+fmtClock(at));
   });
 }
