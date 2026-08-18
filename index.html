@@ -215,6 +215,11 @@ button{cursor:pointer;border:none;background:none}
 /* Dropbox-Replay-style progress fill: a solid line along the top edge that
    grows left→right with playback, on top of the clip ticks and stripe */
 .railprog{position:absolute;top:0;left:0;height:3px;background:var(--chalk);pointer-events:none;z-index:3}
+/* "you're up to here" bookmark: a gold star on the bar you can click to jump back */
+.railstar{position:absolute;top:0;bottom:0;width:0;z-index:7;pointer-events:none}
+.railstar b{position:absolute;top:50%;left:0;transform:translate(-50%,-50%);font-size:15px;line-height:1;
+  color:#FFD23F;text-shadow:0 0 3px #000,0 0 2px #000;cursor:pointer;pointer-events:auto}
+.railstar b:hover{color:#fff}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -477,6 +482,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
           <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
           <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on</button>
+          <button class="tbtn" id="spotbtn" title="Mark where you're up to with a star on the bar. Click the star to jump back; click Spot again while you're on it to clear.">☆ Spot</button>
           <button class="tbtn" data-skip="-20" title="Back 20 seconds">« 20s</button>
           <button class="tbtn" data-skip="-10" title="Back 10 seconds">« 10s</button>
           <button class="tbtn" data-skip="-5"  title="Back 5 seconds">« 5s</button>
@@ -2097,7 +2103,7 @@ function updateTC(){
 
 function drawRail(){
   const rail=$('#rail');
-  [...rail.querySelectorAll('.railtick')].forEach(n=>n.remove());
+  [...rail.querySelectorAll('.railtick, .railstar')].forEach(n=>n.remove());
   const D = vid.duration || 0;
   if(D){
     S.marks.forEach(m=>{
@@ -2108,6 +2114,17 @@ function drawRail(){
       d.style.background=COLORS[m.color]?.hex;
       rail.appendChild(d);
     });
+    if(S.watchMark!=null && S.watchMark<=D){   /* the "up to here" bookmark star */
+      const s=document.createElement('div');
+      s.className='railstar'; s.style.left=(S.watchMark/D*100)+'%';
+      s.innerHTML='<b title="You watched up to here — click to jump back ('+fmtClock(S.watchMark)+')">★</b>';
+      s.querySelector('b').addEventListener('click', e=>{
+        e.stopPropagation();
+        if(S.watchMark==null || !vid.duration) return;
+        vid.currentTime=S.watchMark; loopArmed=false; clearRailHover(); render();
+      });
+      rail.appendChild(s);
+    }
     if(curClip){
       const w=$('#railwin'); w.style.display='block';
       w.style.left=(clipStart(curClip)/D*100)+'%';
@@ -2127,6 +2144,25 @@ $('#rail').addEventListener('click',e=>{
   loopArmed = false;
   render();
 });
+/* "You're up to here" bookmark: one gold star on the bar marks how far you've
+   watched, so you can dip back into earlier sections and still find your place. */
+function syncSpotBtn(){
+  const b=$('#spotbtn'); if(!b) return;
+  const on = S.watchMark!=null;
+  b.textContent = on ? '★ Spot' : '☆ Spot';
+  b.setAttribute('aria-pressed', on);
+}
+function markSpot(){
+  if(!vid.src || !vid.duration) return toast('Load a video first');
+  const t=vid.currentTime;
+  if(S.watchMark!=null && Math.abs(S.watchMark - t) < 0.6){
+    S.watchMark=null; toast('Spot cleared');
+  } else {
+    S.watchMark=t; toast('Marked your spot at '+fmtClock(t)+' — click the ★ on the bar to come back');
+  }
+  save(); drawRail(); syncSpotBtn();
+}
+$('#spotbtn').addEventListener('click', markSpot);
 /* ---- hovering the time bar ----
    Over open bar: preview the elapsed time at the pointer.
    Near a clip mark: light that clip up in the side panel (cool blue, so it's
@@ -4337,7 +4373,7 @@ function save(quiet){
   if(!quiet) pendingLoud=true;
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
-    Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,marks:S.marks,tomb:S.tomb,offset:S.offset,
+    Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
                    fps});
@@ -4359,6 +4395,8 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     S.lineWt = d.lineWt||1;
     S.autoEditNew = !!d.autoEditNew;
     { const ae=$('#autoeditbtn'); if(ae) ae.setAttribute('aria-pressed', S.autoEditNew); }
+    S.watchMark = (typeof d.watchMark==='number') ? d.watchMark : null;
+    syncSpotBtn();
     if(S.padsV<1){
       if(!S.pads.some(p=>(p.label||'').toLowerCase()==='attacking'))
         S.pads=[...S.pads, {label:'Attacking',color:'path',pre:2,post:7,ask:'What was on before the final ball?'}];
