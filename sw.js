@@ -4,7 +4,7 @@
    cache thereafter, with a quiet background refresh so updates still land.
 
    Bump CACHE when you change index.html and want phones to pick it up. */
-const CACHE = 'chalkline-v114';
+const CACHE = 'chalkline-v115';
 
 const SHELL = [
   './',

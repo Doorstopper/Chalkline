@@ -483,6 +483,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
           <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on</button>
           <button class="tbtn" id="spotbtn" title="Mark where you're up to with a star on the bar. Click the star to jump back; click Spot again while you're on it to clear.">☆ Spot</button>
+          <button class="tbtn" id="resumebtn" title="Jump to your ★ spot and keep watching from there" disabled>⏵ Resume</button>
           <button class="tbtn" data-skip="-20" title="Back 20 seconds">« 20s</button>
           <button class="tbtn" data-skip="-10" title="Back 10 seconds">« 10s</button>
           <button class="tbtn" data-skip="-5"  title="Back 5 seconds">« 5s</button>
@@ -2147,10 +2148,9 @@ $('#rail').addEventListener('click',e=>{
 /* "You're up to here" bookmark: one gold star on the bar marks how far you've
    watched, so you can dip back into earlier sections and still find your place. */
 function syncSpotBtn(){
-  const b=$('#spotbtn'); if(!b) return;
   const on = S.watchMark!=null;
-  b.textContent = on ? '★ Spot' : '☆ Spot';
-  b.setAttribute('aria-pressed', on);
+  const b=$('#spotbtn'); if(b){ b.textContent = on ? '★ Spot' : '☆ Spot'; b.setAttribute('aria-pressed', on); }
+  const r=$('#resumebtn'); if(r) r.disabled = !on;   /* nothing to resume to until a spot is set */
 }
 function markSpot(){
   if(!vid.src || !vid.duration) return toast('Load a video first');
@@ -2162,7 +2162,15 @@ function markSpot(){
   }
   save(); drawRail(); syncSpotBtn();
 }
+function resumeSpot(){
+  if(S.watchMark==null) return toast('No spot marked yet — set one with ☆ Spot');
+  if(!vid.src) return toast('Load a video first');
+  vid.currentTime = S.watchMark; loopArmed=false; clearRailHover(); render();
+  const pr=vid.play(); if(pr&&pr.catch) pr.catch(()=>{});
+  toast('Resumed from '+fmtClock(S.watchMark));
+}
 $('#spotbtn').addEventListener('click', markSpot);
+$('#resumebtn').addEventListener('click', resumeSpot);
 /* ---- hovering the time bar ----
    Over open bar: preview the elapsed time at the pointer.
    Near a clip mark: light that clip up in the side panel (cool blue, so it's
