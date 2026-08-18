@@ -2,7 +2,7 @@
   "name": "Chalkline",
   "short_name": "Chalkline",
   "description": "Mark up and clip match footage",
-  "start_url": "./index.html#sideline",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",

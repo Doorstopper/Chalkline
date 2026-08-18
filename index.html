@@ -2289,10 +2289,10 @@ function canGrabPan(p){
   return !tool && !(curClip && pickHandle(p));
 }
 draw.addEventListener('pointerdown', e=>{
-  if(panMode){ panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return; }
+  if(panMode){ panning={x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY}; draw.setPointerCapture(e.pointerId); return; }
   if(loupeOn){ draw.setPointerCapture(e.pointerId); moveLoupe(e); return; }
   if(canGrabPan(pt(e))){
-    panning={x:e.clientX,y:e.clientY}; draw.setPointerCapture(e.pointerId); return;
+    panning={x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY}; draw.setPointerCapture(e.pointerId); return;
   }
   if(!curClip) return toast('Pick a clip first');
   /* an open inline text box commits on any click elsewhere (a canvas can't blur
@@ -2326,7 +2326,7 @@ draw.addEventListener('pointerdown', e=>{
 });
 draw.addEventListener('pointermove', e=>{
   if(panning){ viewPanX+=e.clientX-panning.x; viewPanY+=e.clientY-panning.y;
-    panning={x:e.clientX,y:e.clientY}; clampPan(); applyViewTransform(); return; }
+    panning.x=e.clientX; panning.y=e.clientY; clampPan(); applyViewTransform(); return; }
   if(loupeOn){ moveLoupe(e); return; }
   const p=pt(e);
   if(chaining){ chainCursor=p; render(); return; }  /* rubber-band to the next point */
@@ -2345,7 +2345,17 @@ draw.addEventListener('pointermove', e=>{
   else draw.style.cursor='default';
 });
 draw.addEventListener('pointerup', ()=>{
-  if(panning){ panning=null; return; }
+  if(panning){
+    /* a click (no real drag) while panning still clears the selection, so you can
+       tap empty space to un-highlight a mark and drop its white grips even when
+       zoomed-in pan mode is on */
+    const moved = Math.hypot((panning.x-panning.sx)||0, (panning.y-panning.sy)||0) > 3;
+    if(!moved && (selection.length || editingShape)){
+      if(editingShape && finishTextEdit) finishTextEdit(true);
+      selection=[]; render();
+    }
+    panning=null; return;
+  }
   if(loupeOn){ return; }
   if(marquee){ const box=marquee; marquee=null; selectInBox(box); render(); return; }
   if(moving){ const m=moving; moving=null;
