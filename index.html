@@ -65,56 +65,7 @@ button{cursor:pointer;border:none;background:none}
 .view{position:absolute;inset:0;display:none;overflow:auto;background:var(--pitch)}
 .view.on{display:block}
 
-/* ---------- sideline ---------- */
-#sideline{display:none;flex-direction:column;padding:14px;gap:12px;height:100%;overflow:hidden}
-#sideline.on{display:flex}
-#sideline>*{flex:none}
-.clockwrap{text-align:center;padding:6px 0 2px}
-.clock{
-  font-family:var(--mono);font-weight:600;font-size:clamp(56px,17vw,104px);
-  line-height:.9;letter-spacing:-.03em;
-  font-variant-numeric:tabular-nums;
-}
-.clock.idle{color:var(--chalk-dim)}
-.clock.live{color:var(--flood)}
-.clocksub{display:flex;justify-content:center;gap:10px;align-items:center;margin-top:8px}
-.pill{
-  font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;
-  border:1px solid var(--line);padding:4px 9px;border-radius:99px;color:var(--chalk-dim);
-}
-.pill.hot{border-color:var(--flood);color:var(--flood)}
-
-.padgrid{
-  display:grid;grid-template-columns:1fr 1fr;gap:8px;
-  flex:1 1 auto;min-height:0;overflow-y:auto;align-content:start;
-  -webkit-overflow-scrolling:touch;
-}
-.pad{
-  border:1px solid var(--line);border-left-width:5px;border-radius:var(--r);
-  background:var(--turf);display:flex;flex-direction:column;justify-content:center;
-  padding:11px 12px;min-height:68px;text-align:left;transition:background .08s,transform .08s;
-}
-.pad:active{background:var(--turf-hi);transform:scale(.98)}
-.pad .k{font-family:var(--display);font-size:21px;line-height:1.05;letter-spacing:.02em;text-transform:uppercase;font-weight:600}
-.pad .n{font-family:var(--mono);font-size:10px;color:var(--chalk-dim);margin-top:4px;letter-spacing:.08em}
-.pad[disabled]{opacity:.5}
-.pad[disabled] .k{color:var(--chalk-dim)}
-.pad.flash{background:var(--flood);color:#0C1711}
-.pad.flash .n{color:#0C1711}
-
-.marklog{
-  border:1px solid var(--line);border-radius:var(--r);background:var(--turf);
-  flex:0 1 auto;min-height:74px;max-height:26vh;overflow:auto;
-  -webkit-overflow-scrolling:touch;
-}
-.logrow{
-  display:flex;align-items:center;gap:9px;padding:7px 11px;border-bottom:1px solid rgba(63,95,78,.4);
-  font-family:var(--mono);font-size:12px;
-}
-.logrow:last-child{border-bottom:none}
-.logrow .swatch{width:3px;height:16px;border-radius:2px;flex:none}
-.logrow .lbl{font-family:var(--body);font-size:13px;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.logrow .x{color:var(--chalk-dim);padding:2px 5px;font-size:14px}
+/* Sideline retired — its clock, pad-grid and mark-log styles were removed. */
 .emptylog{padding:16px;text-align:center;color:var(--chalk-dim);font-size:13px;background:var(--pitch)}
 
 .rowbtns{display:flex;gap:8px;max-width:100%}
@@ -345,11 +296,6 @@ kbd{
 }
 .sep{height:1px;background:var(--line);margin:2px 0}
 
-.syncline{
-  display:flex;align-items:center;gap:8px;justify-content:center;
-  font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
-  color:var(--chalk-dim);padding:2px 0 4px;
-}
 .dotstate{width:7px;height:7px;border-radius:99px;background:var(--line);flex:none}
 .dotstate.on{background:var(--path)}
 .dotstate.busy{background:var(--flood);animation:blink .7s steps(2) infinite}
@@ -388,11 +334,6 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   #top{gap:10px;padding:0 10px}
   .brand{font-size:20px}
   .tab{padding:6px 11px;font-size:15px}
-}
-@media (max-height:740px){
-  .clock{font-size:clamp(44px,13vw,72px)}
-  .pad{min-height:60px}
-  .pad .k{font-size:19px}
 }
 .panelswitch{display:none}
 
@@ -460,32 +401,6 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
 <div id="views">
 
-  <!-- ================= SIDELINE (retired — kept dormant so shared code still resolves; not shown) ================= -->
-  <section id="sideline" class="view" hidden aria-hidden="true">
-    <div class="clockwrap">
-      <div class="clock idle" id="clock">00:00</div>
-      <div class="clocksub">
-        <span class="pill" id="statepill">clock stopped</span>
-        <span class="pill" id="markpill">0 marks</span>
-      </div>
-    </div>
-
-    <div class="padgrid" id="pads"></div>
-
-    <div class="marklog" id="marklog"><div class="emptylog">Marks land here. Tap a pad the moment it happens — you can rename and trim later.</div></div>
-
-    <div class="rowbtns">
-      <button class="btn primary" id="startbtn">Start clock</button>
-      <button class="btn" id="undobtn">Undo</button>
-    </div>
-    <div class="rowbtns">
-      <button class="btn small" id="syncbtn">Send to laptop</button>
-      <button class="btn small" id="savemarks">Save file</button>
-      <button class="btn small" id="editpads">Pads</button>
-      <button class="btn small danger" id="resetbtn">Reset</button>
-    </div>
-    <div class="syncline" id="syncline"><span class="dotstate" id="syncdot"></span><span id="synctext">Sync off — marks stay on this device</span></div>
-  </section>
 
   <!-- ================= STUDIO ================= -->
   <section id="studio" class="view on">
@@ -799,19 +714,16 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   <!-- ================= HELP ================= -->
   <section id="help" class="view">
     <div class="dlgbody" style="max-width:min(760px,100%);margin:0 auto;padding:22px 18px 60px;max-height:none">
-      <h3>Two ways in</h3>
-      <p><b>Tag at the ground.</b> Start the XbotGo recording, then hit <b>Start clock</b> here at the same moment. Tap a pad whenever something worth talking about happens. No watching the phone, and the work is done by the time you're back in the car.</p>
-      <p><b>Or tag from the sofa.</b> Skip the sideline entirely. Load the match in Studio, press play, and hit the category buttons under the video — or the letter keys <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd>, which sit under your left hand so your right stays on the transport. No clock, no offset, no syncing: marks land against the video's own timeline.</p>
+      <h3>How it works</h3>
+      <p><b>Tag as you watch.</b> Load the match, press play, and hit the category buttons under the video — or the letter keys <kbd>Q</kbd> <kbd>W</kbd> <kbd>E</kbd> <kbd>R</kbd> <kbd>T</kbd> <kbd>Y</kbd>, which sit under your left hand so your right stays on the transport. Each tag becomes a clip with sensible in and out points. Marks land against the video's own timeline — no clock, no syncing.</p>
       <p>The <b>lag</b> box next to the tag buttons winds each mark back a second to allow for the fact you press <i>after</i> you've seen the thing. Raise it if your marks keep landing late. It only applies while the video is playing — if you've paused to place a mark precisely, the playhead is taken as read.</p>
-      <p>Watching at 1.5× or 2× and tagging as you go covers a 70-minute game in about forty minutes, which is still slower than tagging live. The sideline route stays the quicker one. This is the better route when you didn't tag on the day, when someone else filmed it, or when you want a second pass over a game you've already been through.</p>
-      <p>You can mix them freely — tag live, then add more on review. Marks from both land in the same list.</p>
+      <p>Watching at 1.5× or 2× and tagging as you go covers a 70-minute game in about forty minutes. You can also load a marks file someone else made and pick up from there.</p>
 
       <h3>The rest of the workflow</h3>
       <ul>
-        <li><b>At the ground:</b> start the XbotGo recording, then hit <b>Start clock</b> here at the same moment. Tap a pad whenever something worth talking about happens. That's it — no watching the phone.</li>
-        <li><b>Half time:</b> if the camera keeps recording through the break, leave the clock running too — they have to stay in step. Only pause the clock if you also stop the recording, and resume both together. Pausing keeps the time; it never resets, and it survives the browser reloading.</li>
-        <li><b>At home:</b> Studio tab, drop in the match file, load your marks. Every mark becomes a clip with sensible in and out points.</li>
-        <li><b>Off by a few seconds?</b> Nudge <b>Sync offset</b> until the first clip lands right. It shifts every mark at once.</li>
+        <li><b>Load the match:</b> drop the video file in — it never leaves your machine. Tag as you watch, or Open a saved marks file.</li>
+        <li><b>Every mark becomes a clip</b> with sensible in and out points; trim each one with Before / After.</li>
+        <li><b>Off by a few seconds?</b> Nudge <b>Offset</b> until the first clip lands right — it shifts every mark at once.</li>
       </ul>
 
       <h3>What the research says</h3>
@@ -970,7 +882,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
 <script>
 /* ============================================================
-   Chalkline — sideline marker + studio telestrator
+   Chalkline — studio tagger + telestrator
    Single file. No network. No uploads.
    ============================================================ */
 
@@ -1030,29 +942,6 @@ let S = {
   defaultPlayer: ''   // new clips are tagged to this player until you change it
 };
 let filterPlayer = '__all';   // which clips the Studio list + reel export show. Not persisted.
-
-/* Clock is anchored to wall time (Date.now), not performance.now — the
-   monotonic clock can pause while a phone sleeps, and an epoch anchor also
-   survives a mid-game browser reload. Pausing accumulates; it never resets. */
-let clock = {epoch:null, acc:0};
-let clockRAF = null;
-function nowT(){ return clock.epoch ? clock.acc + (Date.now()-clock.epoch)/1000 : clock.acc; }
-function clockRunning(){ return clock.epoch !== null; }
-
-function syncClockUI(){
-  const run = clockRunning();
-  $('#clock').textContent = fmtClock(nowT());
-  $('#clock').className = 'clock ' + (run?'live':'idle');
-  $('#statepill').className = 'pill' + (run?' hot':'');
-  $('#statepill').textContent = run ? 'clock running'
-    : (clock.acc>0 ? 'paused · pads locked' : 'not started');
-  const b=$('#startbtn');
-  b.textContent = run ? 'Pause clock' : (clock.acc>0 ? 'Resume clock' : 'Start clock');
-  b.classList.toggle('primary', !run);
-  cancelAnimationFrame(clockRAF);
-  if(run) tickClock();
-  renderPads();
-}
 
 /* ---------- toast ---------- */
 let toastT;
@@ -1148,7 +1037,7 @@ function currentHash(){ try{ return (location.hash||'').replace('#',''); }catch(
 window.addEventListener('hashchange',()=>{ showView(currentHash()==='help' ? 'help' : 'studio'); });
 
 /* ============================================================
-   SIDELINE
+   TIME + FORMAT HELPERS
    ============================================================ */
 function fmtClock(s){
   s = Math.max(0, s);
@@ -1161,92 +1050,7 @@ function fmtTC(s){
   return String(m).padStart(2,'0')+':'+ss.toFixed(2).padStart(5,'0');
 }
 
-function renderPads(){
-  const wrap = $('#pads'); wrap.innerHTML='';
-  S.pads.forEach((p,i)=>{
-    const b = document.createElement('button');
-    b.className='pad';
-    b.style.borderLeftColor = COLORS[p.color]?.hex || '#fff';
-    b.innerHTML = `<div class="k">${esc(p.label)}</div><div class="n">−${p.pre}s / +${p.post}s</div>`;
-    b.disabled = !clockRunning();
-    b.addEventListener('click', ()=>addMark(i,b));
-    wrap.appendChild(b);
-  });
-}
 function esc(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
-
-function addMark(i, btn){
-  if(!clockRunning()) return;
-  const p = S.pads[i];
-  const m = {
-    id: 'm'+Date.now()+Math.random().toString(36).slice(2,6),
-    t: nowT(), padIndex:i, label:p.label, color:p.color,
-    pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[], u:Date.now()
-  };
-  S.marks.push(m);
-  if(navigator.vibrate) navigator.vibrate(28);
-  if(btn){ btn.classList.add('flash'); setTimeout(()=>btn.classList.remove('flash'),160); }
-  renderLog(); renderClips(); drawRail(); save();
-}
-
-function renderLog(){
-  const el = $('#marklog');
-  $('#markpill').textContent = S.marks.length + (S.marks.length===1?' mark':' marks');
-  if(!S.marks.length){
-    el.innerHTML = '<div class="emptylog">Marks land here. Tap a pad the moment it happens — you can rename and trim later.</div>';
-    return;
-  }
-  el.innerHTML='';
-  [...S.marks].reverse().forEach(m=>{
-    const row = document.createElement('div'); row.className='logrow';
-    row.innerHTML = `<span class="swatch" style="background:${COLORS[m.color]?.hex}"></span>
-      <span>${fmtClock(m.t)}</span>
-      <span class="lbl">${esc(m.label)}</span>`;
-    const x = document.createElement('button');
-    x.className='x'; x.textContent='×'; x.setAttribute('aria-label','Remove mark');
-    x.addEventListener('click',()=>{
-      S.marks = S.marks.filter(k=>k.id!==m.id);
-      (S.tomb=S.tomb||[]).push(m.id);
-      renderLog(); renderClips(); drawRail(); save();
-    });
-    row.appendChild(x);
-    el.appendChild(row);
-  });
-  el.scrollTop = 0;
-}
-
-function tickClock(){
-  $('#clock').textContent = fmtClock(nowT());
-  clockRAF = requestAnimationFrame(tickClock);
-}
-
-$('#startbtn').addEventListener('click',()=>{
-  if(!clockRunning()){
-    const resuming = clock.acc>0;
-    clock.epoch = Date.now();
-    syncClockUI(); save();
-    toast(resuming ? 'Clock resumed from '+fmtClock(clock.acc)
-                   : 'Clock started — press record on the camera at the same time');
-  } else {
-    clock.acc = nowT(); clock.epoch = null;
-    syncClockUI(); save();
-    toast('Paused — the time is kept. Resume and it carries on');
-  }
-});
-
-$('#undobtn').addEventListener('click',()=>{
-  if(!S.marks.length) return toast('Nothing to undo');
-  (S.tomb=S.tomb||[]).push(S.marks.pop().id);
-  renderLog(); renderClips(); drawRail(); save();
-});
-
-$('#resetbtn').addEventListener('click',async ()=>{
-  if(!await confirmBox('This clears every mark, all markup and the clock for this session. It cannot be undone.')) return;
-  (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
-  S.marks=[]; curClip=null;
-  clock={epoch:null,acc:0}; syncClockUI();
-  renderLog(); renderClips(); drawRail(); save(); toast('Session cleared');
-});
 
 function saveMarksFile(){
   if(!S.marks.length) return toast('No clips to save yet');
@@ -1255,7 +1059,6 @@ function saveMarksFile(){
     'chalkline-marks-'+(base?base+'-':'')+stamp()+'.json');
   toast(S.marks.length+(S.marks.length===1?' clip':' clips')+' saved to a file');
 }
-$('#savemarks').addEventListener('click', saveMarksFile);
 $('#savemarks2').addEventListener('click', saveMarksFile);
 
 async function clearAllClips(){
@@ -1266,7 +1069,7 @@ async function clearAllClips(){
     `Save them first with the Save button if you want to keep them — this can’t be undone.`)) return;
   (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
   S.marks=[]; curClip=null;
-  renderClips(); renderLog(); drawRail(); render(); save();
+  renderClips(); drawRail(); render(); save();
   toast('All clips cleared');
 }
 $('#clearclips').addEventListener('click', clearAllClips);
@@ -1276,8 +1079,7 @@ function openPadsEditor(){
   $('#padstext').value = S.pads.map(p=>`${p.label} | ${p.color} | ${p.pre} | ${p.post} | ${p.ask}`).join('\n');
   $('#padsdlg').showModal();
 }
-$('#editpads').addEventListener('click', openPadsEditor);
-{ const ep2=$('#editpads2'); if(ep2) ep2.addEventListener('click', openPadsEditor); }
+$('#editpads2').addEventListener('click', openPadsEditor);
 $('#padscancel').addEventListener('click',()=>$('#padsdlg').close());
 $('#padssave').addEventListener('click',()=>{
   const rows = $('#padstext').value.split('\n').map(l=>l.trim()).filter(Boolean);
@@ -1288,7 +1090,7 @@ $('#padssave').addEventListener('click',()=>{
     out.push({label:p[0], color:COLORS[p[1]]?p[1]:'ball', pre:+p[2]||6, post:+p[3]||6, ask:p[4]||''});
   }
   if(!out.length) return toast('Add at least one pad');
-  S.pads = out; renderPads(); renderTagBar(); save(); $('#padsdlg').close(); toast('Pads saved');
+  S.pads = out; renderTagBar(); save(); $('#padsdlg').close(); toast('Pads saved');
 });
 
 /* ============================================================
@@ -1312,7 +1114,7 @@ async function loadVideo(file){
     if(choice==='save') saveMarksFile();        /* download the clips file, then clear */
     (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
     S.marks=[]; curClip=null;
-    renderClips(); renderLog(); drawRail(); save();
+    renderClips(); drawRail(); save();
   }
   if(vidURL) URL.revokeObjectURL(vidURL);
   vidURL = URL.createObjectURL(file);
@@ -1686,7 +1488,7 @@ async function deleteClip(m){
   S.marks = S.marks.filter(k=>k.id!==m.id);
   (S.tomb=S.tomb||[]).push(m.id);
   if(curClip && curClip.id===m.id){ curClip=null; render(); }
-  renderClips(); renderLog(); drawRail(); save();
+  renderClips(); drawRail(); save();
   toast('Clip deleted');
 }
 
@@ -1728,7 +1530,7 @@ $('#recat').addEventListener('change',()=>{
   /* adopt the identity of the new category; keep any trims already made */
   curClip.label=p.label; curClip.color=p.color; curClip.ask=p.ask; curClip.padIndex=i;
   $('#askprompt').textContent=p.ask||'';
-  touch(curClip); renderClips(); renderLog(); drawRail(); save();
+  touch(curClip); renderClips(); drawRail(); save();
   toast('Reclassified as '+p.label);
 });
 
@@ -1863,7 +1665,7 @@ function readMarksFile(f){
         S.marks = d.marks.map(m=>migrateMark({shapes:[],caption:'',...m}));
         if(Array.isArray(d.pads)) S.pads=d.pads;
         if(typeof d.offset==='number'){ S.offset=d.offset; $('#offset').value=d.offset; }
-        renderClips(); renderLog(); renderPads(); renderTagBar(); drawRail(); save();
+        renderClips(); renderTagBar(); drawRail(); save();
         toast(S.marks.length+' marks loaded');
       } else toast('That file has no marks in it');
     }catch(err){ toast('Could not read that file'); }
@@ -2171,9 +1973,8 @@ setPanel('clips');
 const isPhone = ()=>window.matchMedia('(max-width:900px)').matches;
 
 /* ---------- tag as you watch ----------
-   The other way round from the sideline: play the match back and hit a category
-   the moment you see something. Keys sit on the left hand so the right stays on
-   the transport. */
+   Play the match back and hit a category the moment you see something. Keys sit
+   on the left hand so the right stays on the transport. */
 const TAGKEYS = 'qwertyuiop';
 
 function renderTagBar(){
@@ -2211,7 +2012,7 @@ function tagNow(i, btn){
   btn = btn || $('#tagpads').children[i];
   if(btn){ btn.classList.add('hit'); setTimeout(()=>btn.classList.remove('hit'),150); }
   loopArmed = false;
-  renderClips(); renderLog(); drawRail(); save();
+  renderClips(); drawRail(); save();
   if(S.autoEditNew){ selectClip(m); toast(p.label+' — looping so you can edit it'); }   /* jump to the new clip and loop it */
   else toast(p.label+' at '+fmtClock(at));
 }
@@ -2232,7 +2033,7 @@ function customTag(){
     };
     S.marks.push(m);
     loopArmed=false;
-    renderClips(); renderLog(); drawRail(); save();
+    renderClips(); drawRail(); save();
     if(S.autoEditNew){ selectClip(m); toast(label+' — looping so you can edit it'); }
     else toast(label+' at '+fmtClock(at));
   });
@@ -4392,7 +4193,7 @@ function merge(incoming){
   if(fresh && incoming.pads) S.pads = incoming.pads;
   if(curClip && !S.marks.some(m=>m.id===curClip.id)) curClip=null;
   const changed = added || updated || tombGrew || S.marks.length!==before;
-  renderLog(); renderClips(); renderPads(); renderTagBar(); drawRail(); save(true);
+  renderClips(); renderTagBar(); drawRail(); save(true);
   merge.changed = !!changed;
   return added;
 }
@@ -4449,8 +4250,11 @@ $('#applycode').addEventListener('click', async ()=>{
 
 /* ---- live endpoint ---- */
 function syncState(cls, text){
-  $('#syncdot').className = 'dotstate '+cls;
-  $('#synctext').textContent = text;
+  /* the on-screen sync status line lived on the retired Sideline tab; guard so
+     Sync from Studio still works without it */
+  const dot=$('#syncdot'), txt=$('#synctext');
+  if(dot) dot.className = 'dotstate '+cls;
+  if(txt) txt.textContent = text;
 }
 function endpoint(){
   if(!Sync.url || !Sync.key) return null;
@@ -4494,7 +4298,6 @@ function openSync(){
   $('#syncurl').value=Sync.url; $('#synckey').value=Sync.key; $('#syncauto').checked=Sync.auto;
   $('#syncdlg').showModal();
 }
-$('#syncbtn').addEventListener('click', openSync);
 $('#syncbtn2').addEventListener('click', openSync);
 $('#syncclose').addEventListener('click', ()=>$('#syncdlg').close());
 $('#pushbtn').addEventListener('click', ()=>push(false));
@@ -4520,7 +4323,7 @@ function save(quiet){
     Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
-                   fps,clock});
+                   fps});
     if(pendingLoud){ pendingLoud=false; autoPush(); }
   },350);
 }
@@ -4556,16 +4359,14 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     if(d.exportRes) $('#exportres').value = d.exportRes;
     if(d.exportFpsV) $('#exportfps').value = d.exportFpsV;
     fps = d.fps||25;
-    if(d.clock){ clock = {epoch:d.clock.epoch||null, acc:d.clock.acc||0}; }
     $('#offset').value=S.offset; $('#fpsin').value=fps;
-    if(clockRunning()) toast('Clock was running — picked up at '+fmtClock(nowT()));
-    else if(S.marks.length) toast(S.marks.length+' marks restored from last session');
+    if(S.marks.length) toast(S.marks.length+' marks restored from last session');
   }
   const sc = await Store.get('chalkline:sync');
   if(sc){
     Sync.url=sc.url||''; Sync.key=sc.key||''; Sync.auto=!!sc.auto;
     if(Sync.auto && endpoint()){ syncState('on', Sync.key+' · syncing'); pull(true); }
   }
-  syncClockUI(); renderLog(); renderClips(); renderTools(); renderTagBar(); updateCap();
+  renderClips(); renderTools(); renderTagBar(); updateCap();
 })();
 </script>

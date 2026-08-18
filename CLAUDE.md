@@ -44,12 +44,16 @@ HTML file again — edit `index.html` only.
 ## App structure
 
 - **Studio tab** — the app. Load a match, tag as you watch, telestrate, export.
-- **Sideline tab** — **retired** (v110). The phone-first live-capture view was
-  removed from the UI: the tab button and routing are gone and the app always
-  opens in Studio. The `#sideline` `<section>` and its JS are kept dormant in the
-  file (hidden) so shared code still resolves — do not delete them piecemeal, or
-  the many `$('#sideline-element')` handlers throw at load. Pad editing, Save,
-  Clear and Sync were surfaced in Studio when Sideline was retired.
+  There is a small **Help** view (the `?` tab) and that's it.
+- **Sideline — fully removed (v111).** The phone-first live-capture view is
+  gone: HTML section, its CSS (clock/pad-grid/mark-log), and all its JS (the wall
+  clock, `renderPads`/`renderLog`/`addMark`/`tickClock`/`syncClockUI`, and the
+  Start/Undo/Reset/Send/Save/Pads handlers) were deleted. Studio carries the
+  survivors: **Edit tags** (`#editpads2`), **Save** (`#savemarks2`), **Clear all
+  clips** (`#clearclips`), **Sync** (`#syncbtn2`). The app always opens in Studio;
+  any `#sideline` hash routes to Studio. The cross-device **Sync/handoff** feature
+  is still present (reachable from Studio's Sync button) — only its old on-screen
+  status line was removed, so `syncState()` guards for the missing element.
 
 ## Known constraints & gotchas
 
