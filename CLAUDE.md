@@ -43,8 +43,13 @@ HTML file again — edit `index.html` only.
 
 ## App structure
 
-- **Studio tab** — laptop-first. Telestration / detailed review workflow.
-- **Sideline tab** — phone-first. On-the-field capture/tagging workflow.
+- **Studio tab** — the app. Load a match, tag as you watch, telestrate, export.
+- **Sideline tab** — **retired** (v110). The phone-first live-capture view was
+  removed from the UI: the tab button and routing are gone and the app always
+  opens in Studio. The `#sideline` `<section>` and its JS are kept dormant in the
+  file (hidden) so shared code still resolves — do not delete them piecemeal, or
+  the many `$('#sideline-element')` handlers throw at load. Pad editing, Save,
+  Clear and Sync were surfaced in Studio when Sideline was retired.
 
 ## Known constraints & gotchas
 

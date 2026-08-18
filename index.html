@@ -453,16 +453,15 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   <div class="brand">Chalk<em>line</em></div>
   <div class="eyebrow" id="ctx">no session</div>
   <div class="tabs" role="tablist">
-    <button class="tab" role="tab" aria-selected="true" data-view="sideline">Sideline</button>
-    <button class="tab" role="tab" aria-selected="false" data-view="studio">Studio</button>
+    <button class="tab" role="tab" aria-selected="true" data-view="studio">Studio</button>
     <button class="tab" role="tab" aria-selected="false" data-view="help" style="max-width:44px">?</button>
   </div>
 </div>
 
 <div id="views">
 
-  <!-- ================= SIDELINE ================= -->
-  <section id="sideline" class="view on">
+  <!-- ================= SIDELINE (retired — kept dormant so shared code still resolves; not shown) ================= -->
+  <section id="sideline" class="view" hidden aria-hidden="true">
     <div class="clockwrap">
       <div class="clock idle" id="clock">00:00</div>
       <div class="clocksub">
@@ -489,7 +488,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   </section>
 
   <!-- ================= STUDIO ================= -->
-  <section id="studio" class="view">
+  <section id="studio" class="view on">
 
     <div class="col">
       <div class="colhead" style="gap:5px">
@@ -605,6 +604,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           </label>
           <button class="tbtn" id="autoeditbtn" type="button" aria-pressed="false" style="flex:none"
                   title="When on, a clip you tag jumps back and loops straight away so you can edit it. When off, the video keeps playing.">⟳ Edit on tag</button>
+          <button class="tbtn" id="editpads2" type="button" style="flex:none"
+                  title="Add, rename or recolour your tag categories">Edit tags</button>
         </div>
       </div>
     </div>
@@ -1141,18 +1142,10 @@ $$('.tab').forEach(t=>t.addEventListener('click',()=>{
   /* a sandboxed iframe refuses history writes — the tab still switches */
   try{ history.replaceState(null,'','#'+t.dataset.view); }catch(e){}
 }));
-/* a desktop shortcut can point at #studio, the phone icon at #sideline */
+/* Sideline is retired — the app always opens in Studio; only Help is a separate view */
 function currentHash(){ try{ return (location.hash||'').replace('#',''); }catch(e){ return ''; } }
-(function routeHash(){
-  const h=currentHash();
-  if(['sideline','studio','help'].includes(h)) showView(h);
-  else if(/Mobi|Android|iPhone/i.test(navigator.userAgent)) showView('sideline');
-  else showView('studio');
-})();
-window.addEventListener('hashchange',()=>{
-  const h=currentHash();
-  if(['sideline','studio','help'].includes(h)) showView(h);
-});
+(function routeHash(){ showView(currentHash()==='help' ? 'help' : 'studio'); })();
+window.addEventListener('hashchange',()=>{ showView(currentHash()==='help' ? 'help' : 'studio'); });
 
 /* ============================================================
    SIDELINE
@@ -1279,10 +1272,12 @@ async function clearAllClips(){
 $('#clearclips').addEventListener('click', clearAllClips);
 
 /* pad editor */
-$('#editpads').addEventListener('click',()=>{
+function openPadsEditor(){
   $('#padstext').value = S.pads.map(p=>`${p.label} | ${p.color} | ${p.pre} | ${p.post} | ${p.ask}`).join('\n');
   $('#padsdlg').showModal();
-});
+}
+$('#editpads').addEventListener('click', openPadsEditor);
+{ const ep2=$('#editpads2'); if(ep2) ep2.addEventListener('click', openPadsEditor); }
 $('#padscancel').addEventListener('click',()=>$('#padsdlg').close());
 $('#padssave').addEventListener('click',()=>{
   const rows = $('#padstext').value.split('\n').map(l=>l.trim()).filter(Boolean);
@@ -1642,7 +1637,7 @@ function renderClips(){
   const el = $('#cliplist'); el.innerHTML='';
   refreshPlayerUI();
   if(!S.marks.length){
-    el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No marks yet. Tag a game on the Sideline tab, or load a marks file.</div>';
+    el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No clips yet. Load a match, tag as you watch with the pads under the video, or Open a saved clips file.</div>';
     return;
   }
   const shown=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
