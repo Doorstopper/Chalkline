@@ -225,9 +225,12 @@ button{cursor:pointer;border:none;background:none}
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
   pointer-events:none;white-space:nowrap;display:none;z-index:6}
 .tbar{display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap}
-/* the transport buttons are grouped by job (transport · clips · view · options)
-   with a thin divider between each cluster so the row reads at a glance */
-.tgroup{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+/* the transport buttons are grouped by job (transport · clips · view · options),
+   each under a tiny label with a thin divider between clusters so the row reads
+   at a glance */
+.tgroup{display:flex;flex-direction:column;gap:3px}
+.tglabel{font-family:var(--mono);font-size:9px;letter-spacing:.12em;text-transform:uppercase;color:var(--chalk-dim);padding-left:1px}
+.tgbtns{display:flex;align-items:center;gap:5px;flex-wrap:wrap}
 .tgroup + .tgroup{padding-left:9px;border-left:1px solid var(--line)}
 .tbtn{
   border:1px solid var(--line);border-radius:var(--r);padding:6px 10px;background:var(--turf);
@@ -484,6 +487,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="tbar">
           <!-- Transport: move through the video -->
           <div class="tgroup">
+            <span class="tglabel">Transport</span>
+            <div class="tgbtns">
             <button class="tbtn" id="playbtn">Play</button>
             <button class="tbtn" data-step="-1">◀ frame</button>
             <button class="tbtn" data-step="1">frame ▶</button>
@@ -503,9 +508,12 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <button class="tbtn" data-rate="1.5" title="Skim faster">1.5×</button>
             <button class="tbtn" data-rate="2" title="Skim faster">2×</button>
             <button class="tbtn" data-rate="3" title="Skim faster">3×</button>
+            </div>
           </div>
           <!-- Clips and review: work your tagged moments -->
           <div class="tgroup">
+            <span class="tglabel">Clips</span>
+            <div class="tgbtns">
             <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
             <button class="tbtn" id="prevclip" title="Previous clip ( [ )">◄ Clip</button>
             <button class="tbtn" id="nextclip" title="Next clip ( ] )">Clip ►</button>
@@ -515,22 +523,29 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <button class="tbtn" id="resumebtn" title="Jump to your ★ spot and keep watching from there" disabled>⏵ Resume</button>
             <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
             <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Freeze</button>
+            </div>
           </div>
           <!-- View: how the picture looks -->
           <div class="tgroup">
+            <span class="tglabel">View</span>
+            <div class="tgbtns">
             <button class="tbtn" id="zoomout" title="Zoom the whole picture out">Zoom −</button>
             <button class="tbtn" id="zoomlvl" title="Current zoom — click to reset to 100%">100%</button>
             <button class="tbtn" id="zoomin" title="Zoom the whole picture in">Zoom +</button>
             <button class="tbtn" id="panbtn" aria-pressed="false" title="Pan turns on automatically when you zoom in, so just drag to move the picture. Click here to switch to Draw when you want to mark up a zoomed-in frame.">✋ Pan</button>
             <button class="tbtn" id="loupebtn" aria-pressed="false" title="Magnifying glass — move it over the video to enlarge that spot">🔍 Loupe</button>
             <button class="tbtn" id="fsbtn" title="Full screen (F) — watch big; the controls hide while playing and pop back the moment you move the mouse">⛶ Full screen</button>
+            </div>
           </div>
           <!-- Options: set-and-forget toggles -->
           <div class="tgroup">
+            <span class="tglabel">Options</span>
+            <div class="tgbtns">
             <button class="tbtn" id="mutebtn" aria-pressed="true" title="Mute while watching">Muted</button>
             <button class="tbtn" id="marksbtn" aria-pressed="true" title="Show or hide all markups while watching — hiding never deletes them">Marks on</button>
             <button class="tbtn" id="gripsbtn" aria-pressed="false" title="Show the move grips for editing when paused. Leave off to pause and explain without them.">✛ Grips off</button>
             <button class="tbtn" id="changevid">Change video</button>
+            </div>
           </div>
         </div>
         <div class="tagbar" id="tagbar">
