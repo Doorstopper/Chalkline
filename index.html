@@ -4431,7 +4431,24 @@ function save(quiet){
   },350);
 }
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
-  window.addEventListener('load',()=>{ navigator.serviceWorker.register('./sw.js').catch(e=>console.warn('SW:',e)); });
+  /* Auto-update: register with the SW script never taken from the HTTP cache, ask
+     it to check for a new version on every open (and hourly), and when a new
+     worker takes control, reload once so the newest code is showing. The SW does
+     skipWaiting + clients.claim, so a fresh deploy lands without any manual
+     refresh, uninstall, or DevTools. */
+  const hadController = !!navigator.serviceWorker.controller;
+  let swRefreshing = false;
+  navigator.serviceWorker.addEventListener('controllerchange', ()=>{
+    if(!hadController || swRefreshing) return;   /* skip the first-ever registration */
+    swRefreshing = true; location.reload();
+  });
+  window.addEventListener('load', async ()=>{
+    try{
+      const reg = await navigator.serviceWorker.register('./sw.js', {updateViaCache:'none'});
+      reg.update().catch(()=>{});
+      setInterval(()=>reg.update().catch(()=>{}), 60*60*1000);
+    }catch(e){ console.warn('SW:',e); }
+  });
 }
 window.addEventListener('online',  ()=>toast('Back online'));
 window.addEventListener('offline', ()=>toast('Offline — tagging still works, sync will wait'));

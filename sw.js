@@ -4,7 +4,7 @@
    cache thereafter, with a quiet background refresh so updates still land.
 
    Bump CACHE when you change index.html and want phones to pick it up. */
-const CACHE = 'chalkline-v121';
+const CACHE = 'chalkline-v122';
 
 const SHELL = [
   './',
@@ -49,13 +49,15 @@ self.addEventListener('fetch', e => {
      it still opens on a dead-signal sideline. */
   if (req.mode === 'navigate' || req.destination === 'document') {
     e.respondWith(
-      fetch(req).then(res => {
+      /* cache:'no-store' skips the browser's 10-min HTTP cache so we always get
+         the newest deploy from the server, not a stale copy */
+      fetch(req, { cache: 'no-store' }).then(res => {
         if (res && res.ok) {
           const copy = res.clone();
-          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+          caches.open(CACHE).then(c => c.put('./index.html', copy)).catch(() => {});
         }
         return res;
-      }).catch(() => caches.match(req).then(hit => hit || caches.match('./index.html')))
+      }).catch(() => caches.match('./index.html').then(hit => hit || caches.match('./')))
     );
     return;
   }
