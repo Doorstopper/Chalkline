@@ -4179,6 +4179,9 @@ document.addEventListener('keydown',e=>{
     toast('Pasted '+pasted.length+(pasted.length===1?' mark':' marks'));
     return;
   }
+  /* Any other Ctrl/⌘ combo is a browser/OS shortcut (reload, new tab, print, tab
+     switching…) — let it through, don't hijack it with a tool or tag key. */
+  if(mod) return;
   /* Delete/Backspace removes the selected marks (those showing white handles) */
   if((e.key==='Delete'||e.key==='Backspace') && selection.length && curClip){
     e.preventDefault();
