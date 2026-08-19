@@ -4,7 +4,7 @@
    cache thereafter, with a quiet background refresh so updates still land.
 
    Bump CACHE when you change index.html and want phones to pick it up. */
-const CACHE = 'chalkline-v115';
+const CACHE = 'chalkline-v117';
 
 const SHELL = [
   './',
@@ -43,9 +43,25 @@ self.addEventListener('fetch', e => {
     return;
   }
 
-  /* Fonts and other cross-origin assets: cache-first, they never change */
-  const sameOrigin = url.origin === self.location.origin;
+  /* The app itself (the HTML document / a navigation) is network-first: when you
+     have signal, every open pulls the newest deploy straight away — no manual
+     refresh, no "one launch behind". Offline, it falls back to the cached copy so
+     it still opens on a dead-signal sideline. */
+  if (req.mode === 'navigate' || req.destination === 'document') {
+    e.respondWith(
+      fetch(req).then(res => {
+        if (res && res.ok) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+        }
+        return res;
+      }).catch(() => caches.match(req).then(hit => hit || caches.match('./index.html')))
+    );
+    return;
+  }
 
+  /* Everything else (icons, manifest, fonts) is cache-first with a quiet
+     background refresh — fast, and it rarely changes. */
   e.respondWith(
     caches.match(req).then(hit => {
       const net = fetch(req).then(res => {

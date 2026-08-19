@@ -481,6 +481,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <button class="tbtn" id="playbtn">Play</button>
           <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
           <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
+          <button class="tbtn" id="prevclip" title="Previous clip ( [ )">◄ Clip</button>
+          <button class="tbtn" id="nextclip" title="Next clip ( ] )">Clip ►</button>
           <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on</button>
           <button class="tbtn" id="spotbtn" title="Mark where you're up to with a star on the bar. Click the star to jump back; click Spot again while you're on it to clear.">☆ Spot</button>
           <button class="tbtn" id="resumebtn" title="Jump to your ★ spot and keep watching from there" disabled>⏵ Resume</button>
@@ -2171,6 +2173,17 @@ function resumeSpot(){
 }
 $('#spotbtn').addEventListener('click', markSpot);
 $('#resumebtn').addEventListener('click', resumeSpot);
+/* Fast move through clips: step to the previous/next clip in time order, using
+   the same filtered list the Clips panel shows. Also on the [ and ] keys. */
+function stepClip(dir){
+  const shown=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  if(!shown.length) return toast('No clips yet');
+  const i=shown.findIndex(m=>curClip&&m.id===curClip.id);
+  const n = i<0 ? (dir>0?0:shown.length-1) : Math.max(0, Math.min(shown.length-1, i+dir));
+  selectClip(shown[n]);
+}
+$('#prevclip').addEventListener('click', ()=>stepClip(-1));
+$('#nextclip').addEventListener('click', ()=>stepClip(1));
 /* ---- hovering the time bar ----
    Over open bar: preview the elapsed time at the pointer.
    Near a clip mark: light that clip up in the side panel (cool blue, so it's
@@ -4203,12 +4216,8 @@ document.addEventListener('keydown',e=>{
   if(e.key===' '){ e.preventDefault(); togglePlay(); }
   else if(e.key==='ArrowLeft'){ e.preventDefault(); vid.pause(); vid.currentTime-=1/fps; render(); }
   else if(e.key==='ArrowRight'){ e.preventDefault(); vid.pause(); vid.currentTime+=1/fps; render(); }
-  else if(e.key==='['||e.key===']'){
-    const sorted=[...S.marks].sort((a,b)=>a.t-b.t);
-    const i=sorted.findIndex(m=>curClip&&m.id===curClip.id);
-    const n=e.key==='[' ? Math.max(0,i-1) : Math.min(sorted.length-1,i+1);
-    if(sorted[n]) selectClip(sorted[n]);
-  }
+  else if(e.key==='['){ e.preventDefault(); stepClip(-1); }
+  else if(e.key===']'){ e.preventDefault(); stepClip(1); }
 });
 
 /* ============================================================
