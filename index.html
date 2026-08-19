@@ -2301,16 +2301,21 @@ $('#trimhL').addEventListener('pointerdown', e=>startTrimDrag('pre',e));
 $('#trimhR').addEventListener('pointerdown', e=>startTrimDrag('post',e));
 [$('#trimhL'),$('#trimhR')].forEach(el=>{ el.addEventListener('pointermove',moveTrimDrag); el.addEventListener('pointerup',endTrimDrag); el.addEventListener('pointercancel',endTrimDrag); });
 /* Hold a clamp (on the strip OR the main bar) and tap the arrow keys to nudge
-   that edge in half-second steps: →/↑ add, ←/↓ remove. */
+   that edge in half-second steps. The arrow follows the clamp: on the BEFORE
+   clamp, ← grows it (more before) and → shrinks it; on the AFTER clamp it's the
+   opposite (→ grows, ← shrinks). ↑ adds, ↓ removes on either. */
 document.addEventListener('keydown', e=>{
   const active = trimDrag || railTrim;
   if(!active || !active.m) return;
+  const k=active.edge;
   let d=0;
-  if(e.key==='ArrowRight'||e.key==='ArrowUp') d=0.5;
-  else if(e.key==='ArrowLeft'||e.key==='ArrowDown') d=-0.5;
+  if(e.key==='ArrowUp') d=0.5;
+  else if(e.key==='ArrowDown') d=-0.5;
+  else if(e.key==='ArrowLeft')  d = (k==='pre') ?  0.5 : -0.5;
+  else if(e.key==='ArrowRight') d = (k==='pre') ? -0.5 :  0.5;
   else return;
   e.preventDefault(); e.stopPropagation();
-  const m=active.m, k=active.edge, cur=k==='pre'?m.pre:m.post, v=Math.max(0, Math.round((cur+d)*2)/2);
+  const m=active.m, cur=k==='pre'?m.pre:m.post, v=Math.max(0, Math.round((cur+d)*2)/2);
   if(k==='pre') m.pre=v; else m.post=v;
   if(curClip===m){ $('#pre').value=m.pre; $('#post').value=m.post; }
   touch(m); drawTrim(); drawRail(); renderClips(); save();
