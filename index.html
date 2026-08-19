@@ -211,6 +211,11 @@ button{cursor:pointer;border:none;background:none}
   display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .railcard .rgo{margin-top:5px;font-family:var(--mono);font-size:9px;letter-spacing:.08em;color:#8FC4FF;text-transform:uppercase}
 .railwin{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.14);border-left:1px solid var(--flood);border-right:1px solid var(--flood)}
+/* drag handles on the ends of the selected clip's window to trim before/after */
+.railtrim{position:absolute;top:0;bottom:0;width:12px;transform:translateX(-50%);z-index:6;
+  cursor:ew-resize;touch-action:none;display:flex;align-items:center;justify-content:center}
+.railtrim::before{content:"";width:3px;height:60%;background:var(--flood);border-radius:2px;box-shadow:0 0 4px rgba(0,0,0,.6)}
+.railtrim:hover::before{background:#fff}
 .railhead{position:absolute;top:-2px;bottom:-2px;width:2px;background:var(--chalk);pointer-events:none;z-index:4}
 /* Dropbox-Replay-style progress fill: a solid line along the top edge that
    grows left→right with playback, on top of the clip ticks and stripe */
@@ -478,6 +483,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
       <div class="transport">
         <div class="rail" id="rail">
           <div class="railwin" id="railwin" style="display:none"></div>
+          <div class="railtrim" id="railtrimL" style="display:none" title="Drag to change how much plays before the moment"></div>
+          <div class="railtrim" id="railtrimR" style="display:none" title="Drag to change how much plays after the moment"></div>
           <div class="railprog" id="railprog" style="width:0"></div>
           <div class="railhover" id="railhover"></div>
           <div class="railhead" id="railhead" style="left:0"></div>
@@ -2193,8 +2200,12 @@ function drawRail(){
       const w=$('#railwin'); w.style.display='block';
       w.style.left=(clipStart(curClip)/D*100)+'%';
       w.style.width=((clipEnd(curClip)-clipStart(curClip))/D*100)+'%';
-    } else $('#railwin').style.display='none';
-  } else $('#railwin').style.display='none';
+      const L=$('#railtrimL'), R=$('#railtrimR');           /* trim handles on the window ends */
+      L.style.display=R.style.display='flex';
+      L.style.left=(clipStart(curClip)/D*100)+'%';
+      R.style.left=(clipEnd(curClip)/D*100)+'%';
+    } else { $('#railwin').style.display='none'; $('#railtrimL').style.display=$('#railtrimR').style.display='none'; }
+  } else { $('#railwin').style.display='none'; $('#railtrimL').style.display=$('#railtrimR').style.display='none'; }
 }
 $('#rail').addEventListener('click',e=>{
   if(!vid.duration) return;
@@ -2207,6 +2218,38 @@ $('#rail').addEventListener('click',e=>{
   vid.currentTime = x/r.width*vid.duration;
   loopArmed = false;
   render();
+});
+/* Drag the ends of the selected clip's window on the bar to trim before/after. */
+let railTrim=null;
+function startRailTrim(edge, e){
+  if(!curClip || !vid.duration) return;
+  e.stopPropagation(); e.preventDefault();
+  railTrim={m:curClip, edge};
+  e.currentTarget.setPointerCapture(e.pointerId);
+  clearRailHover();
+}
+function moveRailTrim(e){
+  if(!railTrim) return;
+  const r=$('#rail').getBoundingClientRect(), D=vid.duration;
+  const x=Math.max(0, Math.min(r.width, e.clientX-r.left));
+  const time=x/r.width*D, base=railTrim.m.t + (+S.offset||0), round=v=>Math.max(0, Math.round(v*2)/2);
+  if(railTrim.edge==='pre') railTrim.m.pre = round(base - time);
+  else railTrim.m.post = round(time - base);
+  if(curClip===railTrim.m){ $('#pre').value=railTrim.m.pre; $('#post').value=railTrim.m.post; }
+  drawRail(); render();
+}
+function endRailTrim(){
+  if(!railTrim) return;
+  const m=railTrim.m; railTrim=null;
+  touch(m); renderClips(); drawRail(); save();
+  toast('Clip trimmed — before '+m.pre+'s, after '+m.post+'s');
+}
+['railtrimL','railtrimR'].forEach((id,i)=>{
+  const el=$('#'+id), edge=i===0?'pre':'post';
+  el.addEventListener('pointerdown', e=>startRailTrim(edge, e));
+  el.addEventListener('pointermove', moveRailTrim);
+  el.addEventListener('pointerup', endRailTrim);
+  el.addEventListener('pointercancel', endRailTrim);
 });
 /* "You're up to here" bookmark: one gold star on the bar marks how far you've
    watched, so you can dip back into earlier sections and still find your place. */
