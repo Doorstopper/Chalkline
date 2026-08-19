@@ -225,6 +225,18 @@ button{cursor:pointer;border:none;background:none}
 .railstar b{position:absolute;top:50%;left:0;transform:translate(-50%,-50%);font-size:15px;line-height:1;
   color:#FFD23F;text-shadow:0 0 3px #000,0 0 2px #000;cursor:pointer;pointer-events:auto}
 .railstar b:hover{color:#fff}
+/* zoomed clip-trim strip (appears under the bar when a clip is selected) */
+.trimbar{display:flex;align-items:center;gap:8px;margin-top:6px}
+.trimcap{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--flood);flex:none;min-width:58px}
+.trimcap#trimcapR{text-align:right}
+.trimtrack{position:relative;flex:1;height:22px;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer}
+.trimfill{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.16)}
+.trimbeat{position:absolute;top:2px;bottom:2px;width:2px;background:var(--chalk);transform:translateX(-50%)}
+.trimhead{position:absolute;top:0;bottom:0;width:2px;background:#8FC4FF;transform:translateX(-50%);pointer-events:none}
+.trimhandle{position:absolute;top:0;bottom:0;width:16px;transform:translateX(-50%);z-index:3;cursor:ew-resize;touch-action:none;
+  display:flex;align-items:center;justify-content:center}
+.trimhandle::before{content:"";width:4px;height:70%;background:var(--flood);border-radius:2px}
+.trimhandle:hover::before{background:#fff}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -491,6 +503,18 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <div class="railtip" id="railtip"></div>
         </div>
         <div class="railcard" id="railcard"></div>
+        <!-- zoomed trim strip for the selected clip: big handles for easy before/after -->
+        <div class="trimbar" id="trimbar" style="display:none">
+          <span class="trimcap" id="trimcapL">before</span>
+          <div class="trimtrack" id="trimtrack">
+            <div class="trimfill" id="trimfill"></div>
+            <div class="trimbeat" id="trimbeat"></div>
+            <div class="trimhead" id="trimhead" style="display:none"></div>
+            <div class="trimhandle" id="trimhL" title="Drag to change how much plays before"></div>
+            <div class="trimhandle" id="trimhR" title="Drag to change how much plays after"></div>
+          </div>
+          <span class="trimcap" id="trimcapR">after</span>
+        </div>
         <div class="tbar">
           <!-- Transport: move through the video -->
           <div class="tgroup">
@@ -636,8 +660,20 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </label>
 
         <div class="pairs">
-          <label class="field"><span class="eyebrow">Before (s)</span><input type="number" id="pre" value="2" min="0" step="1"></label>
-          <label class="field"><span class="eyebrow">After (s)</span><input type="number" id="post" value="7" min="0" step="1"></label>
+          <label class="field"><span class="eyebrow">Before (s)</span>
+            <div style="display:flex;gap:4px;align-items:center">
+              <button class="tbtn" id="predown" type="button" title="Less before">−</button>
+              <input type="number" id="pre" value="2" min="0" step="0.5" style="flex:1;text-align:center;min-width:0">
+              <button class="tbtn" id="preup" type="button" title="More before">+</button>
+            </div>
+          </label>
+          <label class="field"><span class="eyebrow">After (s)</span>
+            <div style="display:flex;gap:4px;align-items:center">
+              <button class="tbtn" id="postdown" type="button" title="Less after">−</button>
+              <input type="number" id="post" value="7" min="0" step="0.5" style="flex:1;text-align:center;min-width:0">
+              <button class="tbtn" id="postup" type="button" title="More after">+</button>
+            </div>
+          </label>
         </div>
 
         <label class="field">
@@ -1612,6 +1648,18 @@ $('#recat').addEventListener('change',()=>{
 
 $('#pre').addEventListener('input',()=>{ if(curClip){ curClip.pre=Math.max(0,+$('#pre').value||0); touch(curClip); renderClips(); drawRail(); save(); }});
 $('#post').addEventListener('input',()=>{ if(curClip){ curClip.post=Math.max(0,+$('#post').value||0); touch(curClip); renderClips(); drawRail(); save(); }});
+/* quick −/+ nudge on the before/after trims (half-second steps) */
+function nudgeTrim(which, d){
+  if(!curClip) return toast('Pick a clip first');
+  const cur = which==='pre' ? curClip.pre : curClip.post;
+  const v = Math.max(0, Math.round((cur + d)*2)/2);
+  if(which==='pre') curClip.pre=v; else curClip.post=v;
+  $('#'+which).value=v; touch(curClip); renderClips(); drawRail(); save();
+}
+$('#predown').addEventListener('click',()=>nudgeTrim('pre',-0.5));
+$('#preup').addEventListener('click',()=>nudgeTrim('pre',0.5));
+$('#postdown').addEventListener('click',()=>nudgeTrim('post',-0.5));
+$('#postup').addEventListener('click',()=>nudgeTrim('post',0.5));
 $('#offset').addEventListener('input',()=>{ S.offset=+$('#offset').value||0; renderClips(); drawRail(); save(); });
 $('#fpsin').addEventListener('input',()=>{ fps = Math.max(1, +$('#fpsin').value||25); save(); });
 
@@ -2147,6 +2195,7 @@ function updateTC(){
     const pct = vid.currentTime/vid.duration*100;
     $('#railhead').style.left = pct+'%';
     $('#railprog').style.width = pct+'%';   /* progress fill along the top edge */
+    if(curClip && !trimDrag) drawTrim();     /* keep the zoomed trim strip's playhead in step */
   }
   /* Live freeze: while reviewing, pause at the frame you marked, hold for the
      Freeze-hold seconds, then carry on. */
@@ -2206,7 +2255,46 @@ function drawRail(){
       R.style.left=(clipEnd(curClip)/D*100)+'%';
     } else { $('#railwin').style.display='none'; $('#railtrimL').style.display=$('#railtrimR').style.display='none'; }
   } else { $('#railwin').style.display='none'; $('#railtrimL').style.display=$('#railtrimR').style.display='none'; }
+  drawTrim();
 }
+/* Zoomed trim strip: shows just the selected clip's neighbourhood so the
+   before/after handles are big and easy to grab even on a long game. */
+let trimT0=0, trimSpan=1;
+function drawTrim(){
+  const tb=$('#trimbar'); if(!tb) return;
+  if(!curClip || !vid.duration){ tb.style.display='none'; return; }
+  tb.style.display='flex';
+  const D=vid.duration, s=clipStart(curClip), e=clipEnd(curClip), win=Math.max(0.1,e-s), pad=Math.max(1.5,win*0.5);
+  trimT0=Math.max(0, s-pad); const t1=Math.min(D, e+pad); trimSpan=(t1-trimT0)||1;
+  const pos=t=>((t-trimT0)/trimSpan*100);
+  $('#trimfill').style.left=pos(s)+'%'; $('#trimfill').style.width=Math.max(0,pos(e)-pos(s))+'%';
+  $('#trimbeat').style.left=pos(curClip.t+(+S.offset||0))+'%';
+  $('#trimhL').style.left=pos(s)+'%'; $('#trimhR').style.left=pos(e)+'%';
+  const ct=vid.currentTime, head=$('#trimhead');
+  if(ct>=trimT0 && ct<=t1){ head.style.display='block'; head.style.left=pos(ct)+'%'; } else head.style.display='none';
+  $('#trimcapL').textContent='before '+curClip.pre+'s'; $('#trimcapR').textContent='after '+curClip.post+'s';
+}
+let trimDrag=null;
+function startTrimDrag(edge, e){ if(!curClip||!vid.duration) return; e.stopPropagation(); e.preventDefault(); trimDrag={m:curClip,edge}; e.currentTarget.setPointerCapture(e.pointerId); }
+function moveTrimDrag(e){
+  if(!trimDrag) return;
+  const r=$('#trimtrack').getBoundingClientRect();
+  const x=Math.max(0,Math.min(r.width, e.clientX-r.left));
+  const time=trimT0 + x/r.width*trimSpan, base=trimDrag.m.t+(+S.offset||0), round=v=>Math.max(0,Math.round(v*2)/2);
+  if(trimDrag.edge==='pre') trimDrag.m.pre=round(base-time); else trimDrag.m.post=round(time-base);
+  if(curClip===trimDrag.m){ $('#pre').value=trimDrag.m.pre; $('#post').value=trimDrag.m.post; }
+  drawTrim(); drawRail(); render();
+}
+function endTrimDrag(){ if(!trimDrag) return; const m=trimDrag.m; trimDrag=null; touch(m); renderClips(); drawTrim(); drawRail(); save(); }
+$('#trimhL').addEventListener('pointerdown', e=>startTrimDrag('pre',e));
+$('#trimhR').addEventListener('pointerdown', e=>startTrimDrag('post',e));
+[$('#trimhL'),$('#trimhR')].forEach(el=>{ el.addEventListener('pointermove',moveTrimDrag); el.addEventListener('pointerup',endTrimDrag); el.addEventListener('pointercancel',endTrimDrag); });
+$('#trimtrack').addEventListener('click', e=>{
+  if(e.target.classList.contains('trimhandle') || !curClip || !vid.duration) return;
+  const r=$('#trimtrack').getBoundingClientRect();
+  vid.currentTime = trimT0 + Math.max(0,Math.min(r.width, e.clientX-r.left))/r.width*trimSpan;
+  loopArmed=false; render();
+});
 $('#rail').addEventListener('click',e=>{
   if(!vid.duration) return;
   const r=e.currentTarget.getBoundingClientRect();
