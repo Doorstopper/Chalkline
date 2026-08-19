@@ -141,6 +141,11 @@ button{cursor:pointer;border:none;background:none}
 .fscorner.show{opacity:1;transform:none;pointer-events:auto}
 .fscorner:hover{background:rgba(6,13,10,.85);border-color:rgba(255,255,255,.45)}
 .fscorner svg{width:18px;height:18px;display:block}
+/* in full screen the corner button follows the on-screen controls (not the
+   hover timer) so it stays put while you move to click it; JS lifts it above
+   the scrubber via bottom */
+.stage.imm .fscorner{opacity:0;pointer-events:none;transform:translateY(4px)}
+.stage.imm:not(.hideui) .fscorner{opacity:1;pointer-events:auto;transform:none}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:5px}
 .chips:empty{display:none}
 .chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,158,255,.16);color:#cfe6ff;
@@ -1904,14 +1909,22 @@ function updateFsCorner(){
 updateFsCorner();
 let fsCornerT=null;
 function showFsCorner(){
-  if(!vid.src) return;
+  if(!vid.src || immersive) return;     /* full screen drives it via the controls, not the hover timer */
   const b=$('#fscorner'); if(!b) return;
   b.classList.add('show'); clearTimeout(fsCornerT);
   fsCornerT=setTimeout(()=>b.classList.remove('show'), 2600);
 }
+/* in full screen, lift the corner button clear above the transport (the scrubber
+   sits at the top of that overlay); otherwise it's the CSS default bottom-right */
+function positionFsCorner(){
+  const b=$('#fscorner'); if(!b) return;
+  if(immersive){ const tr=stageEl.querySelector('.transport'); b.style.bottom = ((tr?tr.offsetHeight:0) + 14) + 'px'; }
+  else b.style.bottom = '';
+}
 { const cw=document.querySelector('.canvaswrap');
   cw.addEventListener('pointermove', showFsCorner);
-  cw.addEventListener('mouseleave', ()=>{ clearTimeout(fsCornerT); const b=$('#fscorner'); if(b) b.classList.remove('show'); }); }
+  cw.addEventListener('mouseleave', ()=>{ if(immersive) return; clearTimeout(fsCornerT); const b=$('#fscorner'); if(b) b.classList.remove('show'); }); }
+window.addEventListener('resize', positionFsCorner);
 $('#fscorner').addEventListener('pointerdown', e=>e.stopPropagation());
 $('#fscorner').addEventListener('click', e=>{ e.stopPropagation(); toggleImmersive(); });
 function onFSChange(){
@@ -1922,8 +1935,8 @@ function onFSChange(){
   if(!immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); }
   const b=$('#fsbtn'); if(b) b.textContent = immersive ? '⛶ Exit full screen' : '⛶ Full screen';
   updateFsCorner();
-  setTimeout(fitCanvas, 60);   /* re-letterbox to the new size */
-  if(immersive){ immShow(); showFsCorner(); }
+  setTimeout(()=>{ fitCanvas(); positionFsCorner(); }, 60);   /* re-letterbox + lift the corner button */
+  if(immersive) immShow();
 }
 document.addEventListener('fullscreenchange', onFSChange);
 document.addEventListener('webkitfullscreenchange', onFSChange);
