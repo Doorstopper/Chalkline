@@ -227,16 +227,17 @@ button{cursor:pointer;border:none;background:none}
 .railstar b:hover{color:#fff}
 /* zoomed clip-trim strip (appears under the bar when a clip is selected) */
 .trimbar{display:flex;align-items:center;gap:8px;margin-top:6px}
-.trimcap{font-family:var(--mono);font-size:10px;letter-spacing:.06em;color:var(--flood);flex:none;min-width:58px}
+.trimcap{font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--chalk-dim);flex:none;min-width:66px}
+.trimcap.active{color:var(--flood);font-weight:700}
 .trimcap#trimcapR{text-align:right}
-.trimtrack{position:relative;flex:1;height:22px;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer}
-.trimfill{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.16)}
-.trimbeat{position:absolute;top:2px;bottom:2px;width:2px;background:var(--chalk);transform:translateX(-50%)}
+.trimtrack{position:relative;flex:1;height:26px;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer}
+.trimfill{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.18)}
+.trimbeat{position:absolute;top:3px;bottom:3px;width:2px;background:var(--chalk);transform:translateX(-50%)}
 .trimhead{position:absolute;top:0;bottom:0;width:2px;background:#8FC4FF;transform:translateX(-50%);pointer-events:none}
-.trimhandle{position:absolute;top:0;bottom:0;width:16px;transform:translateX(-50%);z-index:3;cursor:ew-resize;touch-action:none;
+.trimhandle{position:absolute;top:0;bottom:0;width:22px;transform:translateX(-50%);z-index:3;cursor:ew-resize;touch-action:none;
   display:flex;align-items:center;justify-content:center}
-.trimhandle::before{content:"";width:4px;height:70%;background:var(--flood);border-radius:2px}
-.trimhandle:hover::before{background:#fff}
+.trimhandle::before{content:"";width:5px;height:78%;background:var(--flood);border-radius:3px;transition:width .08s,background .08s}
+.trimhandle:hover::before,.trimhandle.active::before{background:#fff;width:8px}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -2275,7 +2276,16 @@ function drawTrim(){
   $('#trimcapL').textContent='before '+curClip.pre+'s'; $('#trimcapR').textContent='after '+curClip.post+'s';
 }
 let trimDrag=null;
-function startTrimDrag(edge, e){ if(!curClip||!vid.duration) return; e.stopPropagation(); e.preventDefault(); trimDrag={m:curClip,edge}; e.currentTarget.setPointerCapture(e.pointerId); }
+/* highlight the edge you're holding (its handle + caption), on both the strip
+   and the main bar, so it's clear which one the arrow keys will nudge */
+function trimActivate(edge){
+  ['L','R'].forEach(s=>{ const on=(edge==='pre')===(s==='L');
+    const h=$('#trimh'+s), c=$('#trimcap'+s), rt=$('#railtrim'+s);
+    if(h) h.classList.toggle('active',on); if(c) c.classList.toggle('active',on); if(rt) rt.classList.toggle('active',on);
+  });
+}
+function trimDeactivate(){ ['L','R'].forEach(s=>{ [$('#trimh'+s),$('#trimcap'+s),$('#railtrim'+s)].forEach(el=>el&&el.classList.remove('active')); }); }
+function startTrimDrag(edge, e){ if(!curClip||!vid.duration) return; e.stopPropagation(); e.preventDefault(); trimDrag={m:curClip,edge}; e.currentTarget.setPointerCapture(e.pointerId); trimActivate(edge); }
 function moveTrimDrag(e){
   if(!trimDrag) return;
   const r=$('#trimtrack').getBoundingClientRect();
@@ -2285,10 +2295,25 @@ function moveTrimDrag(e){
   if(curClip===trimDrag.m){ $('#pre').value=trimDrag.m.pre; $('#post').value=trimDrag.m.post; }
   drawTrim(); drawRail(); render();
 }
-function endTrimDrag(){ if(!trimDrag) return; const m=trimDrag.m; trimDrag=null; touch(m); renderClips(); drawTrim(); drawRail(); save(); }
+function endTrimDrag(){ if(!trimDrag) return; const m=trimDrag.m; trimDrag=null; trimDeactivate(); touch(m); renderClips(); drawTrim(); drawRail(); save(); }
 $('#trimhL').addEventListener('pointerdown', e=>startTrimDrag('pre',e));
 $('#trimhR').addEventListener('pointerdown', e=>startTrimDrag('post',e));
 [$('#trimhL'),$('#trimhR')].forEach(el=>{ el.addEventListener('pointermove',moveTrimDrag); el.addEventListener('pointerup',endTrimDrag); el.addEventListener('pointercancel',endTrimDrag); });
+/* Hold a clamp (on the strip OR the main bar) and tap the arrow keys to nudge
+   that edge in half-second steps: →/↑ add, ←/↓ remove. */
+document.addEventListener('keydown', e=>{
+  const active = trimDrag || railTrim;
+  if(!active || !active.m) return;
+  let d=0;
+  if(e.key==='ArrowRight'||e.key==='ArrowUp') d=0.5;
+  else if(e.key==='ArrowLeft'||e.key==='ArrowDown') d=-0.5;
+  else return;
+  e.preventDefault(); e.stopPropagation();
+  const m=active.m, k=active.edge, cur=k==='pre'?m.pre:m.post, v=Math.max(0, Math.round((cur+d)*2)/2);
+  if(k==='pre') m.pre=v; else m.post=v;
+  if(curClip===m){ $('#pre').value=m.pre; $('#post').value=m.post; }
+  touch(m); drawTrim(); drawRail(); renderClips(); save();
+}, true);
 $('#trimtrack').addEventListener('click', e=>{
   if(e.target.classList.contains('trimhandle') || !curClip || !vid.duration) return;
   const r=$('#trimtrack').getBoundingClientRect();
@@ -2314,7 +2339,7 @@ function startRailTrim(edge, e){
   e.stopPropagation(); e.preventDefault();
   railTrim={m:curClip, edge};
   e.currentTarget.setPointerCapture(e.pointerId);
-  clearRailHover();
+  clearRailHover(); trimActivate(edge);
 }
 function moveRailTrim(e){
   if(!railTrim) return;
@@ -2328,7 +2353,7 @@ function moveRailTrim(e){
 }
 function endRailTrim(){
   if(!railTrim) return;
-  const m=railTrim.m; railTrim=null;
+  const m=railTrim.m; railTrim=null; trimDeactivate();
   touch(m); renderClips(); drawRail(); save();
   toast('Clip trimmed — before '+m.pre+'s, after '+m.post+'s');
 }
