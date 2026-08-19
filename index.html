@@ -1138,22 +1138,45 @@ $('#padssave').addEventListener('click',()=>{
 const vid = $('#vid'), draw = $('#draw'), ctx = draw.getContext('2d');
 let curClip = null, loop = true, fps = 25;
 
-let vidURL=null;
+let vidURL=null, pendingRestore=null;
+/* Each video remembers its own clips + markup. Keyed by filename + size so
+   reopening the same match brings everything back, and switching between games
+   keeps each one's work separate — no Save/Open file needed. */
+function videoKey(file){ return (file.name||'video').replace(/[^\w.-]+/g,'_')+'__'+(file.size||0); }
+async function saveVidLib(){
+  if(!S.videoKey) return;
+  try{
+    await Store.set('chalkline:vid:'+S.videoKey, {marks:S.marks, offset:S.offset, videoName:S.videoName, u:Date.now()});
+    let idx = (await Store.get('chalkline:vidindex')) || [];
+    idx = [S.videoKey, ...idx.filter(k=>k!==S.videoKey)];
+    const drop = idx.slice(20); idx = idx.slice(0,20);           /* remember the 20 most recent games */
+    for(const k of drop) await Store.set('chalkline:vid:'+k, null);
+    await Store.set('chalkline:vidindex', idx);
+  }catch(e){}
+}
 async function loadVideo(file){
   if(!file) return;
-  /* Opening a different game? Its clips belong to a different video's timeline,
-     so don't silently carry the old game's clips in. Offer to save them first,
-     then start clean. Same filename = reopening the same match, so keep them. */
-  if(S.marks.length && S.videoName && file.name !== S.videoName){
-    const choice = await switchBox(
-      `You have ${S.marks.length} clip${S.marks.length===1?'':'s'} from “${S.videoName}”.\n\n`+
-      `They belong to that video, so opening “${file.name}” will clear them. `+
-      `Save them to a file first?`);
-    if(choice==='cancel') return;              /* keep the current game as-is */
-    if(choice==='save') saveMarksFile();        /* download the clips file, then clear */
-    (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
-    S.marks=[]; curClip=null;
-    renderClips(); drawRail(); save();
+  const key = videoKey(file);
+  pendingRestore = null;
+  /* Switching to a different game? Tuck the current game's clips into its own
+     slot first, then bring back the new game's clips if we've seen it before. */
+  if(S.videoName && file.name !== S.videoName){
+    if(S.videoKey) await saveVidLib();
+    const saved = await Store.get('chalkline:vid:'+key);
+    if(saved && Array.isArray(saved.marks) && saved.marks.length){
+      pendingRestore = saved;                                    /* remembered game — restore after it loads */
+      (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
+      S.marks=[]; curClip=null; renderClips(); drawRail(); save();
+    } else if(S.marks.length){
+      const choice = await switchBox(
+        `You have ${S.marks.length} clip${S.marks.length===1?'':'s'} on “${S.videoName}”.\n\n`+
+        `They're remembered for that video and come back whenever you reopen it. `+
+        `Opening “${file.name}” starts it fresh — save a backup file first?`);
+      if(choice==='cancel') return;
+      if(choice==='save') saveMarksFile();
+      (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
+      S.marks=[]; curClip=null; renderClips(); drawRail(); save();
+    }
   }
   if(vidURL) URL.revokeObjectURL(vidURL);
   vidURL = URL.createObjectURL(file);
@@ -1169,9 +1192,16 @@ async function loadVideo(file){
     delete zone.dataset.busy;
     zone.classList.add('hide');
     $('#vidbox').style.display='block';
-    S.videoName=file.name; $('#ctx').textContent=file.name;
+    S.videoName=file.name; S.videoKey=key; $('#ctx').textContent=file.name;
     $('#codecwarn').style.display='none';
     fpsSamples=[]; fpsLocked=false;
+    if(pendingRestore){                                        /* this game's remembered clips came back */
+      S.marks = (pendingRestore.marks||[]).map(m=>migrateMark({shapes:[],caption:'',u:0,player:'',...m}));
+      if(typeof pendingRestore.offset==='number'){ S.offset=pendingRestore.offset; if($('#offset')) $('#offset').value=S.offset; }
+      const n=S.marks.length; pendingRestore=null;
+      renderClips(); renderTagBar();
+      toast(n+' clip'+(n===1?'':'s')+' remembered for this video');
+    }
     fitCanvas(); drawRail(); updateTC(); save();
     cleanup();
     probeBlack();
@@ -1696,6 +1726,7 @@ $('#loadmarks').addEventListener('click',()=>{
 });
 function readMarksFile(f){
   if(!f) return;
+  pendingRestore = null;   /* an explicitly opened marks file wins over the per-video auto-restore */
   const r=new FileReader();
   r.onload=()=>{
     try{
@@ -4424,9 +4455,10 @@ function save(quiet){
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
     Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
-                   videoName:S.videoName,defaultPlayer:S.defaultPlayer,
+                   videoName:S.videoName,videoKey:S.videoKey,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
                    fps});
+    saveVidLib();                                  /* also remember this game's clips against its video */
     if(pendingLoud){ pendingLoud=false; autoPush(); }
   },350);
 }
@@ -4476,6 +4508,7 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     S.marks = (d.marks||[]).map(m=>migrateMark({shapes:[],caption:'',u:0,player:'',...m}));
     S.tomb = d.tomb||[];
     S.offset = d.offset||0;
+    S.videoName = d.videoName||''; S.videoKey = d.videoKey||'';   /* so the last game keeps saving to its own slot */
     S.defaultPlayer = d.defaultPlayer||'';
     $('#defplayer').value = S.defaultPlayer;
     if(d.exportRes) $('#exportres').value = d.exportRes;
