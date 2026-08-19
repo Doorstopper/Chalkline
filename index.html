@@ -132,6 +132,15 @@ button{cursor:pointer;border:none;background:none}
 #vidbox{position:relative;line-height:0;max-width:100%;max-height:100%;display:flex;min-height:0}
 #vid{max-width:100%;max-height:100%;width:auto;height:auto;display:block;background:#000;object-fit:contain}
 #draw{position:absolute;inset:0;width:100%;height:100%;cursor:crosshair;touch-action:none}
+/* YouTube-style full-screen toggle in the bottom-right of the video; fades in on
+   mouse move, out when idle */
+.fscorner{position:absolute;right:12px;bottom:12px;z-index:35;width:34px;height:34px;padding:0;
+  display:flex;align-items:center;justify-content:center;color:#EEF3EC;cursor:pointer;
+  background:rgba(6,13,10,.6);border:1px solid rgba(255,255,255,.2);border-radius:6px;
+  opacity:0;transform:translateY(4px);transition:opacity .18s ease,transform .18s ease;pointer-events:none}
+.fscorner.show{opacity:1;transform:none;pointer-events:auto}
+.fscorner:hover{background:rgba(6,13,10,.85);border-color:rgba(255,255,255,.45)}
+.fscorner svg{width:18px;height:18px;display:block}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:5px}
 .chips:empty{display:none}
 .chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,158,255,.16);color:#cfe6ff;
@@ -471,6 +480,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <video id="vid" playsinline muted></video>
           <canvas id="draw"></canvas>
         </div>
+        <button class="fscorner" id="fscorner" type="button" aria-label="Full screen" title="Full screen"></button>
         <div id="rec"><i></i><span>Recording clip — leave this tab open</span></div>
         <div id="codecwarn">
           <div>
@@ -1882,6 +1892,28 @@ function toggleImmersive(){
   if(!req) return toast('Full screen isn’t supported in this browser');
   Promise.resolve(req.call(stageEl)).catch(()=>toast('Full screen was blocked'));
 }
+/* corner full-screen button (bottom-right of the video), maximise / minimise squares */
+const FS_MAX='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M3 16v3a2 2 0 0 0 2 2h3"/></svg>';
+const FS_MIN='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3M21 8h-3a2 2 0 0 1-2-2V3M3 16h3a2 2 0 0 1 2 2v3M16 21v-3a2 2 0 0 1 2-2h3"/></svg>';
+function updateFsCorner(){
+  const b=$('#fscorner'); if(!b) return;
+  b.innerHTML = immersive ? FS_MIN : FS_MAX;
+  const lbl = immersive ? 'Exit full screen' : 'Full screen';
+  b.title = lbl; b.setAttribute('aria-label', lbl);
+}
+updateFsCorner();
+let fsCornerT=null;
+function showFsCorner(){
+  if(!vid.src) return;
+  const b=$('#fscorner'); if(!b) return;
+  b.classList.add('show'); clearTimeout(fsCornerT);
+  fsCornerT=setTimeout(()=>b.classList.remove('show'), 2600);
+}
+{ const cw=document.querySelector('.canvaswrap');
+  cw.addEventListener('pointermove', showFsCorner);
+  cw.addEventListener('mouseleave', ()=>{ clearTimeout(fsCornerT); const b=$('#fscorner'); if(b) b.classList.remove('show'); }); }
+$('#fscorner').addEventListener('pointerdown', e=>e.stopPropagation());
+$('#fscorner').addEventListener('click', e=>{ e.stopPropagation(); toggleImmersive(); });
 function onFSChange(){
   const now = inFullscreen()===stageEl;
   if(now===immersive) return;
@@ -1889,8 +1921,9 @@ function onFSChange(){
   stageEl.classList.toggle('imm', immersive);
   if(!immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); }
   const b=$('#fsbtn'); if(b) b.textContent = immersive ? '⛶ Exit full screen' : '⛶ Full screen';
+  updateFsCorner();
   setTimeout(fitCanvas, 60);   /* re-letterbox to the new size */
-  if(immersive) immShow();
+  if(immersive){ immShow(); showFsCorner(); }
 }
 document.addEventListener('fullscreenchange', onFSChange);
 document.addEventListener('webkitfullscreenchange', onFSChange);
