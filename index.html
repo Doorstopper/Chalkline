@@ -644,7 +644,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
     <div class="col">
       <div class="colhead"><span class="eyebrow">Clip</span></div>
       <div class="scroll tools">
-        <label class="field"><span class="eyebrow">Category</span>
+        <label class="field"><span class="eyebrow">Category — change any time to re-tag</span>
           <select id="recat" disabled><option>Pick a clip first</option></select>
         </label>
 
@@ -1022,6 +1022,7 @@ let S = {
   tomb: [],           // ids deleted anywhere, so a merge can't resurrect them
   offset: 0,
   videoName: '',
+  autoEditNew: true,  // a freshly tagged clip jumps back and loops, ready to edit
   defaultPlayer: ''   // new clips are tagged to this player until you change it
 };
 let filterPlayer = '__all';   // which clips the Studio list + reel export show. Not persisted.
@@ -4610,7 +4611,7 @@ function save(quiet){
   if(!quiet) pendingLoud=true;
   clearTimeout(saveT);
   saveT=setTimeout(()=>{
-    Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
+    Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,aeV:1,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,videoKey:S.videoKey,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
                    fps});
@@ -4648,7 +4649,9 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     /* one-time: add the Attacking default tag to older sessions (won't re-add if removed later) */
     S.padsV = d.padsV||0;
     S.lineWt = d.lineWt||1;
-    S.autoEditNew = !!d.autoEditNew;
+    /* Edit-on-tag is now on by default. One-time: turn it on for sessions from
+       before this default (aeV unset); after that, respect whatever you choose. */
+    S.autoEditNew = d.aeV ? !!d.autoEditNew : true;
     { const ae=$('#autoeditbtn'); if(ae) ae.setAttribute('aria-pressed', S.autoEditNew); }
     S.watchMark = (typeof d.watchMark==='number') ? d.watchMark : null;
     syncSpotBtn();
