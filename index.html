@@ -1887,6 +1887,7 @@ function inFullscreen(){ return document.fullscreenElement || document.webkitFul
 function immShow(){
   if(!immersive) return;
   stageEl.classList.remove('hideui');
+  positionFsCorner();   /* keep the corner button sitting above the scrubber even if the transport re-wraps */
   clearTimeout(immIdleT);
   if(!vid.paused) immIdleT=setTimeout(()=>{ if(immersive && !vid.paused) stageEl.classList.add('hideui'); }, 2600);
 }
