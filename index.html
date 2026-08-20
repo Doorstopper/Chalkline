@@ -1505,8 +1505,8 @@ function warnBlank(){
 }
 
 /* ---------- clip list ---------- */
-function clipStart(m){ return Math.max(0, m.t + (+S.offset||0) - m.pre); }
-function clipEnd(m){ return m.t + (+S.offset||0) + m.post; }
+function clipStart(m){ return Math.max(0, m.t + (+S.offset||0) - (Number.isFinite(m.pre)?m.pre:2)); }
+function clipEnd(m){ return m.t + (+S.offset||0) + (Number.isFinite(m.post)?m.post:7); }
 
 /* ---------- player tagging + filtering ---------- */
 /* a clip can be tagged with several players; read them from the array, falling
@@ -1626,6 +1626,8 @@ function selectClip(m){
   selection = []; editingShape = null; finishTextEdit = null;
   liveFrozeSet.clear(); clearTimeout(liveHoldT);
   resetUndo();
+  if(!Number.isFinite(m.pre))  m.pre  = 2;    /* never show a blank trim box */
+  if(!Number.isFinite(m.post)) m.post = 7;
   $('#pre').value = m.pre; $('#post').value = m.post;
   $('#caption').value = m.caption || '';
   $('#clipnotes').value = m.notes || '';
@@ -1668,7 +1670,8 @@ $('#post').addEventListener('input',()=>{ if(curClip){ curClip.post=Math.max(0,+
 /* quick −/+ nudge on the before/after trims (half-second steps) */
 function nudgeTrim(which, d){
   if(!curClip) return toast('Pick a clip first');
-  const cur = which==='pre' ? curClip.pre : curClip.post;
+  let cur = which==='pre' ? curClip.pre : curClip.post;
+  if(!Number.isFinite(cur)) cur = which==='pre' ? 2 : 7;   /* recover a clip with no trim window */
   const v = Math.max(0, Math.round((cur + d)*2)/2);
   if(which==='pre') curClip.pre=v; else curClip.post=v;
   $('#'+which).value=v; touch(curClip); renderClips(); drawRail(); save();
@@ -2183,7 +2186,7 @@ function tagNow(i, btn){
   const m={
     id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
     t:at, padIndex:i, label:p.label, color:p.color,
-    pre:p.pre, post:p.post, ask:p.ask, caption:'', shapes:[],
+    pre:Number.isFinite(p.pre)?p.pre:2, post:Number.isFinite(p.post)?p.post:7, ask:p.ask, caption:'', shapes:[],
     player:(S.defaultPlayer||'').trim(), u:Date.now()
   };
   S.marks.push(m);
@@ -2775,6 +2778,12 @@ function migrateMark(m){
   const dflt = (m.freezeAt!=null) ? m.freezeAt : m.t;
   if(m.shapes) m.shapes.forEach(s=>{ if(s.t==null) s.t=dflt; });
   delete m.freezeAt;
+  /* older / imported clips can arrive without a trim window; without pre/post the
+     Before/After boxes render blank and the −/+ nudge produces NaN. Backfill from
+     the clip's own pad if we can, else the standard 2s before / 7s after. */
+  const pad = (m.padIndex!=null && S.pads) ? S.pads[m.padIndex] : null;
+  if(!Number.isFinite(m.pre))  m.pre  = (pad && Number.isFinite(pad.pre))  ? pad.pre  : 2;
+  if(!Number.isFinite(m.post)) m.post = (pad && Number.isFinite(pad.post)) ? pad.post : 7;
   return m;
 }
 
