@@ -1919,8 +1919,12 @@ function showFsCorner(){
    sits at the top of that overlay); otherwise it's the CSS default bottom-right */
 function positionFsCorner(){
   const b=$('#fscorner'); if(!b) return;
-  if(immersive){ const tr=stageEl.querySelector('.transport'); b.style.bottom = ((tr?tr.offsetHeight:0) + 14) + 'px'; }
-  else b.style.bottom = '';
+  if(immersive){
+    /* sit just above the scrubber (the rail), not above the whole tall transport */
+    const rail=stageEl.querySelector('#rail');
+    const cw=document.querySelector('.canvaswrap');
+    if(rail && cw){ b.style.bottom = Math.max(12, (cw.getBoundingClientRect().bottom - rail.getBoundingClientRect().top) + 10) + 'px'; }
+  } else b.style.bottom = '';
 }
 { const cw=document.querySelector('.canvaswrap');
   cw.addEventListener('pointermove', showFsCorner);
