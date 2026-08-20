@@ -2505,11 +2505,11 @@ function moveSlowDrag(e){
 }
 function endSlowDrag(){ if(!slowDrag) return; const m=slowDrag.m; slowDrag=null;
   $$('#trimslows .trimslowh').forEach(h=>h.classList.remove('active'));
-  slowSig=''; touch(m); save(); drawTrim(); }
+  slowSig=''; reapplyRateNow(); touch(m); save(); drawTrim(); }
 function removeSlowZone(idx){        /* the × on a band removes exactly that section, no timing needed */
   const zones=slowZones(curClip); if(!zones[idx]) return;
   zones.splice(idx,1); if(!zones.length) delete curClip.slow;
-  slowSig=''; touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
+  slowSig=''; reapplyRateNow(); touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
 }
 $('#slowfrom').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
   const lo=clipStart(curClip), hi=clipEnd(curClip);
@@ -2534,7 +2534,7 @@ $('#slowclear').addEventListener('click',()=>{
   if(!curClip || !zones.length) return toast('No slow-mo on this clip');
   const t=vid.currentTime; let idx=zones.findIndex(z=>t>=z.from && t<=z.to); if(idx<0) idx=zones.length-1;
   zones.splice(idx,1); if(!zones.length) delete curClip.slow;
-  slowSig=''; touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
+  slowSig=''; reapplyRateNow(); touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
 });
 $$('[data-slow]').forEach(b=>b.addEventListener('click',()=>{
   const r=+b.dataset.slow; slowRateDefault=r;
@@ -2549,6 +2549,16 @@ function applyClipSlowmo(){
   const t=vid.currentTime, z=curClip.slow.find(q=>t>=q.from && t<=q.to);
   const want = z ? z.rate : userRate;
   if(Math.abs(vid.playbackRate-want)>1e-3) vid.playbackRate=want;
+}
+/* apply the correct speed for the current frame right now — used after editing
+   the slow sections so deleting the one you're inside snaps back to normal
+   speed immediately instead of staying slow (applyClipSlowmo only runs while a
+   clip still has sections, so it can't undo the last one on its own) */
+function reapplyRateNow(){
+  if(exporting || !curClip) return;
+  const zones=Array.isArray(curClip.slow)?curClip.slow:[];
+  const t=vid.currentTime, z=zones.find(q=>t>=q.from && t<=q.to);
+  vid.playbackRate = z ? z.rate : userRate;
 }
 /* Hold a clamp (on the strip OR the main bar) and tap the arrow keys to nudge
    that edge in half-second steps. The arrow follows the clamp: on the BEFORE
