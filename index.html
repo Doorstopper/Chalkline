@@ -141,6 +141,15 @@ button{cursor:pointer;border:none;background:none}
 .fscorner.show{opacity:1;transform:none;pointer-events:auto}
 .fscorner:hover{background:rgba(6,13,10,.85);border-color:rgba(255,255,255,.45)}
 .fscorner svg{width:18px;height:18px;display:block}
+/* Space (zone) corner-count pill: floats by the selected shape */
+.zonectl{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:1px;z-index:20;
+  background:rgba(6,13,10,.86);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:2px;
+  box-shadow:0 2px 9px rgba(0,0,0,.55)}
+.zonectl button{width:27px;height:27px;padding:0;border:none;background:transparent;color:#EEF3EC;
+  font-size:18px;line-height:1;border-radius:5px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.zonectl button:hover{background:rgba(255,255,255,.15)}
+.zonectl button:active{background:rgba(255,255,255,.28)}
+.zonectl .zc-n{min-width:16px;text-align:center;font:600 12px/1 "IBM Plex Mono",monospace;color:#EEF3EC}
 /* in full screen the corner button follows the on-screen controls (not the
    hover timer) so it stays put while you move to click it; JS lifts it above
    the scrubber via bottom */
@@ -2058,6 +2067,7 @@ function applyViewTransform(){
     box.style.transform=`translate(${viewPanX}px,${viewPanY}px) scale(${viewZoom})`; }
   const lvl=$('#zoomlvl'); if(lvl) lvl.textContent=Math.round(viewZoom*100)+'%';
   if(viewZoom===1 && panMode) setPanMode(false);   /* back to 100% → drawing again */
+  if(typeof updateZoneControls==='function') updateZoneControls();   /* keep the +/− pill glued to the shape */
 }
 function clampPan(){
   const w=document.querySelector('.canvaswrap').getBoundingClientRect();
@@ -2734,7 +2744,7 @@ draw.addEventListener('pointerup', ()=>{
   const tiny = (d.tool==='pen'||d.tool==='runpen') ? d.pts.length<3
     : d.tool==='wedge' ? (Math.hypot(((d.b.x+d.c.x)/2)-d.a.x, ((d.b.y+d.c.y)/2)-d.a.y)<0.02)
     : (Math.hypot(d.b.x-d.a.x,d.b.y-d.a.y)<0.012);
-  if(d.tool==='zone'){ d.pts=zonePts(d).map(q=>({...q})); delete d.a; delete d.b; }   /* store 4 draggable corners */
+  if(d.tool==='zone'){ d.pts=planeCorners(d.a,d.b); delete d.a; delete d.b; }   /* store draggable corners as a tilt-able plane */
   if(d.tool==='runpen') d.pts=smoothRun(d.pts);   /* smooth the freehand run on release */
   if(!tiny){ d.t=beatSnap(); curClip.shapes.push(d); selection=[d]; commit();
     if(d.tool==='callout'){ d.text=d.text||''; d.fs=textSize; editTextInline(d, true); }   /* type the label right away */
@@ -3109,6 +3119,15 @@ function pointInTri(p,a,b,c){
   const d3=(p.x-a.x)*(c.y-a.y)-(c.x-a.x)*(p.y-a.y);
   return !(((d1<0)||(d2<0)||(d3<0)) && ((d1>0)||(d2>0)||(d3>0)));
 }
+/* even-odd point-in-polygon for an N-corner Space zone (normalised coords) */
+function pointInPoly(p, P){
+  let inside=false;
+  for(let i=0,j=P.length-1;i<P.length;j=i++){
+    const a=P[i], b=P[j];
+    if(((a.y>p.y)!==(b.y>p.y)) && (p.x < (b.x-a.x)*(p.y-a.y)/((b.y-a.y)||1e-9)+a.x)) inside=!inside;
+  }
+  return inside;
+}
 /* ---------- ground ring: a flat ellipse under a player, with position keyframes
    so it follows them across the clip ---------- */
 function groundCenter(s, time){
@@ -3245,8 +3264,8 @@ function onBody(p,s,tb){
   if(s.tool==='callout'){ return textBoxHit(p,s) || segDistPx(p,s.a,s.b) < tolPx; }
   if(s.tool==='zone'){
     const P=zonePts(s);
-    return pointInTri(p,P[0],P[1],P[2]) || pointInTri(p,P[0],P[2],P[3])
-        || P.some((q,i)=> segDistPx(p,q,P[(i+1)%4]) < tolPx);
+    return pointInPoly(p,P)
+        || P.some((q,i)=> segDistPx(p,q,P[(i+1)%P.length]) < tolPx);
   }
   if(s.tool==='spot'){ return dist(p,s.a) <= dist(s.a,s.b)+tb; }
   if(s.tool==='circle'){
@@ -3294,7 +3313,7 @@ function pickHandle(p){
     }
     if(s.tool==='zone'){   /* each corner can be pushed/pulled to match the field angle */
       const P=zonePts(s);
-      for(let k=0;k<4;k++) if(dist(p,P[k])<te) return {s,mode:'zcorner',idx:k};
+      for(let k=0;k<P.length;k++) if(dist(p,P[k])<te) return {s,mode:'zcorner',idx:k};
     }
     if(s.tool==='scan'){   /* a base corner widens/narrows the cone */
       const [,B]=scanTri(s,W,H);
@@ -3329,7 +3348,7 @@ function beginMove(p, hit){
     moving={mode:'gmove', gs:s, start:p, moved:false, startCtr:groundCenter(s,vid.currentTime)}; return;
   }
   /* materialise a Space zone's 4 corners the first time it's touched (older zones stored a,b) */
-  if(s.tool==='zone' && !(s.pts&&s.pts.length===4)){ s.pts=zonePts(s).map(q=>({...q})); delete s.a; delete s.b; }
+  if(s.tool==='zone' && !(s.pts&&s.pts.length>=3)){ s.pts=zonePts(s).map(q=>({...q})); delete s.a; delete s.b; }
   /* a body grab moves the whole selection; a handle grab resizes just that mark */
   const targets = (hit.mode==='move' && isSel(hit.s)) ? selection : [hit.s];
   moving={ mode:hit.mode, idx:hit.idx, start:p, moved:false, items:targets.map(snapGeom) };
@@ -3477,6 +3496,7 @@ function render(){
   if(typeof syncMarkTiming==='function') syncMarkTiming();   /* keep the timing panel in sync with the selection */
   if(typeof syncTextSize==='function') syncTextSize();
   if(typeof syncLineWt==='function') syncLineWt();
+  if(typeof updateZoneControls==='function') updateZoneControls();   /* the Space +/− corner pill */
 }
 
 function loopRender(){
@@ -3698,9 +3718,76 @@ function line(c,x1,y1,x2,y2){ c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c
 /* the four corners of a Space zone (TL,TR,BR,BL). New zones store s.pts; older
    axis-aligned zones (a,b) derive their corners on the fly. */
 function zonePts(s){
-  if(s.pts && s.pts.length===4) return s.pts;
+  if(s.pts && s.pts.length>=3) return s.pts;
   const x0=Math.min(s.a.x,s.b.x), x1=Math.max(s.a.x,s.b.x), y0=Math.min(s.a.y,s.b.y), y1=Math.max(s.a.y,s.b.y);
   return [{x:x0,y:y0},{x:x1,y:y0},{x:x1,y:y1},{x:x0,y:y1}];
+}
+/* A new Space starts as a shallow trapezoid — a flat 'plane' you tilt to the
+   pitch by dragging its corners — rather than a rigid rectangle. */
+function planeCorners(a,b){
+  const x0=Math.min(a.x,b.x), x1=Math.max(a.x,b.x), y0=Math.min(a.y,b.y), y1=Math.max(a.y,b.y);
+  const inset=Math.min(0.16,(x1-x0)*0.22);
+  return [{x:x0+inset,y:y0},{x:x1-inset,y:y0},{x:x1,y:y1},{x:x0,y:y1}];
+}
+/* ---- Space (zone) corner count: a little +/− pill floating by the selected
+   shape, so you can turn a plane into a triangle, pentagon, hexagon… ---- */
+const ZONE_MIN=3, ZONE_MAX=10;
+function selectedZone(){ return (selection.length===1 && selection[0] && selection[0].tool==='zone') ? selection[0] : null; }
+function segDistN(p,a,b){                       /* point→segment distance in normalised coords */
+  const dx=b.x-a.x, dy=b.y-a.y, L=dx*dx+dy*dy||1e-9;
+  let t=((p.x-a.x)*dx+(p.y-a.y)*dy)/L; t=Math.max(0,Math.min(1,t));
+  return Math.hypot(p.x-(a.x+dx*t), p.y-(a.y+dy*t));
+}
+function addZoneCorner(s){
+  const P=zonePts(s).map(q=>({...q}));
+  if(P.length>=ZONE_MAX) return toast('Most a Space can have is '+ZONE_MAX+' corners');
+  let bi=0, bd=-1;                              /* split the longest edge at its midpoint */
+  for(let i=0;i<P.length;i++){ const a=P[i], b=P[(i+1)%P.length]; const d=Math.hypot(a.x-b.x,a.y-b.y); if(d>bd){bd=d;bi=i;} }
+  const a=P[bi], b=P[(bi+1)%P.length];
+  P.splice(bi+1,0,{x:(a.x+b.x)/2,y:(a.y+b.y)/2});
+  s.pts=P; commit(); render();
+}
+function removeZoneCorner(s){
+  const P=zonePts(s).map(q=>({...q}));
+  if(P.length<=ZONE_MIN) return toast('A Space needs at least '+ZONE_MIN+' corners');
+  let bi=0, bd=Infinity;                        /* drop the flattest vertex (nearest the line between its neighbours) */
+  for(let i=0;i<P.length;i++){ const a=P[(i-1+P.length)%P.length], v=P[i], b=P[(i+1)%P.length];
+    const d=segDistN(v,a,b); if(d<bd){bd=d;bi=i;} }
+  P.splice(bi,1);
+  s.pts=P; commit(); render();
+}
+let zoneCtl=null;
+function ensureZoneCtl(){
+  if(zoneCtl) return zoneCtl;
+  const wrap=document.querySelector('.canvaswrap');
+  zoneCtl=document.createElement('div'); zoneCtl.className='zonectl'; zoneCtl.style.display='none';
+  zoneCtl.innerHTML='<button type="button" data-d="-1" title="Fewer corners">−</button>'
+                   +'<span class="zc-n"></span>'
+                   +'<button type="button" data-d="1" title="More corners">+</button>';
+  zoneCtl.addEventListener('pointerdown', e=>e.stopPropagation());
+  zoneCtl.addEventListener('click', e=>{
+    const b=e.target.closest('button'); if(!b) return;
+    e.stopPropagation();
+    const s=selectedZone(); if(!s) return;
+    (+b.dataset.d>0 ? addZoneCorner : removeZoneCorner)(s);
+  });
+  wrap.appendChild(zoneCtl);
+  return zoneCtl;
+}
+function updateZoneControls(){
+  const s = (!marksHidden && curClip && vid.paused) ? selectedZone() : null;
+  if(!s){ if(zoneCtl) zoneCtl.style.display='none'; return; }
+  const el=ensureZoneCtl();
+  const P=zonePts(s), c=shapeCenter(s);
+  const vr=vid.getBoundingClientRect(), wrap=document.querySelector('.canvaswrap').getBoundingClientRect();
+  if(!vr.width || !c){ el.style.display='none'; return; }
+  const topY=Math.min(...P.map(q=>q.y));
+  let sx=vr.left + c.x*vr.width, sy=vr.top + topY*vr.height - 22;   /* float just above the top edge */
+  sx=Math.max(wrap.left+30, Math.min(wrap.right-30, sx));
+  sy=Math.max(wrap.top+18,  Math.min(wrap.bottom-18, sy));
+  el.style.left=(sx-wrap.left)+'px'; el.style.top=(sy-wrap.top)+'px';
+  el.querySelector('.zc-n').textContent=P.length;
+  el.style.display='flex';
 }
 /* the three px corners of a Scan cone: apex (eyes) at a, spreading to a wide base
    at b. The half-width grows with the beam length, giving a torch-like fan. */
