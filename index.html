@@ -261,6 +261,18 @@ button{cursor:pointer;border:none;background:none}
   display:flex;align-items:center;justify-content:center}
 .trimhandle::before{content:"";width:5px;height:78%;background:var(--flood);border-radius:3px;transition:width .08s,background .08s}
 .trimhandle:hover::before,.trimhandle.active::before{background:#fff;width:8px}
+/* slow-mo section drawn as a blue band on the trim strip, with its own handles */
+.trimslow{position:absolute;top:0;bottom:0;background:rgba(143,196,255,.26);
+  border-left:1px solid #8FC4FF;border-right:1px solid #8FC4FF;pointer-events:none}
+.trimslowh{position:absolute;top:0;bottom:0;width:20px;transform:translateX(-50%);z-index:4;cursor:ew-resize;
+  touch-action:none;display:flex;align-items:center;justify-content:center}
+.trimslowh::before{content:"";width:4px;height:60%;background:#8FC4FF;border-radius:3px;transition:width .08s,background .08s}
+.trimslowh:hover::before,.trimslowh.active::before{background:#fff;width:7px}
+.slowbar{display:flex;align-items:center;gap:6px;margin-top:6px;flex-wrap:wrap}
+.slowlabel{font-family:var(--mono);font-size:10px;letter-spacing:.07em;text-transform:uppercase;color:var(--chalk-dim)}
+.slowsep{width:1px;height:18px;background:var(--line)}
+.slowcap{font-family:var(--mono);font-size:11px;color:#8FC4FF;margin-left:2px}
+.slowbar .tbtn[data-slow][aria-pressed="true"]{background:#8FC4FF;color:#0C1711;border-color:#8FC4FF}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -538,12 +550,27 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <span class="trimcap" id="trimcapL">before</span>
           <div class="trimtrack" id="trimtrack">
             <div class="trimfill" id="trimfill"></div>
+            <div class="trimslow" id="trimslow" style="display:none"></div>
             <div class="trimbeat" id="trimbeat"></div>
             <div class="trimhead" id="trimhead" style="display:none"></div>
+            <div class="trimslowh" id="trimslowL" style="display:none" title="Drag where slow motion starts"></div>
+            <div class="trimslowh" id="trimslowR" style="display:none" title="Drag where slow motion ends"></div>
             <div class="trimhandle" id="trimhL" title="Drag to change how much plays before"></div>
             <div class="trimhandle" id="trimhR" title="Drag to change how much plays after"></div>
           </div>
           <span class="trimcap" id="trimcapR">after</span>
+        </div>
+        <!-- slow-motion section for the selected clip -->
+        <div class="slowbar" id="slowbar" style="display:none">
+          <span class="slowlabel">Slow-mo</span>
+          <button class="tbtn" data-slow=".1">0.1×</button>
+          <button class="tbtn" data-slow=".25">0.25×</button>
+          <button class="tbtn" data-slow=".5">0.5×</button>
+          <span class="slowsep"></span>
+          <button class="tbtn" id="slowfrom" title="Start the slow-mo section at the current frame">Slow from ▶</button>
+          <button class="tbtn" id="slowto" title="End the slow-mo section at the current frame">◀ to here</button>
+          <button class="tbtn" id="slowclear" title="Remove the slow-mo section">Clear</button>
+          <span class="slowcap" id="slowcap"></span>
         </div>
         <div class="tbar">
           <!-- Transport: move through the video -->
@@ -1984,10 +2011,13 @@ $$('[data-skip]').forEach(b=>b.addEventListener('click',()=>{
   vid.currentTime = Math.max(0, Math.min(vid.duration, vid.currentTime + (+b.dataset.skip)));
   render();
 }));
+let userRate=1;   /* the whole-video speed chosen from the rate buttons; a clip's
+                     slow-mo section overrides this only inside its own range */
 $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
   const r=+b.dataset.rate;
   /* clicking the already-active slow-mo toggles back to 1x */
-  const rate = (vid.playbackRate===r && r!==1) ? 1 : r;
+  const rate = (userRate===r && r!==1) ? 1 : r;
+  userRate = rate;
   vid.playbackRate = rate;
   $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', +x.dataset.rate===rate));
 }));
@@ -2333,7 +2363,7 @@ function drawRail(){
 let trimT0=0, trimSpan=1;
 function drawTrim(){
   const tb=$('#trimbar'); if(!tb) return;
-  if(!curClip || !vid.duration){ tb.style.display='none'; return; }
+  if(!curClip || !vid.duration){ tb.style.display='none'; const sb0=$('#slowbar'); if(sb0) sb0.style.display='none'; return; }
   tb.style.display='flex';
   const D=vid.duration, s=clipStart(curClip), e=clipEnd(curClip);
   let t1;
@@ -2353,6 +2383,18 @@ function drawTrim(){
   const ct=vid.currentTime, head=$('#trimhead');
   if(ct>=trimT0 && ct<=t1){ head.style.display='block'; head.style.left=pos(ct)+'%'; } else head.style.display='none';
   $('#trimcapL').textContent='before '+curClip.pre+'s'; $('#trimcapR').textContent='after '+curClip.post+'s';
+  /* slow-mo band + handles on the same strip */
+  const sb=$('#slowbar'); if(sb) sb.style.display='flex';
+  const sw=curClip.slow, band=$('#trimslow'), sL=$('#trimslowL'), sR=$('#trimslowR');
+  if(sw && sw.to>sw.from){
+    const a=Math.max(s,sw.from), b2=Math.min(e,sw.to);
+    band.style.display='block'; band.style.left=pos(a)+'%'; band.style.width=Math.max(0,pos(b2)-pos(a))+'%';
+    sL.style.display='block'; sL.style.left=pos(a)+'%';
+    sR.style.display='block'; sR.style.left=pos(b2)+'%';
+  } else { band.style.display='none'; sL.style.display='none'; sR.style.display='none'; }
+  const activeRate = sw ? sw.rate : slowRateDefault;
+  $$('[data-slow]').forEach(x=>x.setAttribute('aria-pressed', Math.abs(+x.dataset.slow-activeRate)<1e-9));
+  const cap=$('#slowcap'); if(cap) cap.textContent = sw ? ((sw.to-sw.from).toFixed(1)+'s @ '+sw.rate+'×') : '';
 }
 let trimDrag=null;
 /* highlight the edge you're holding (its handle + caption), on both the strip
@@ -2378,6 +2420,57 @@ function endTrimDrag(){ if(!trimDrag) return; const m=trimDrag.m; trimDrag=null;
 $('#trimhL').addEventListener('pointerdown', e=>startTrimDrag('pre',e));
 $('#trimhR').addEventListener('pointerdown', e=>startTrimDrag('post',e));
 [$('#trimhL'),$('#trimhR')].forEach(el=>{ el.addEventListener('pointermove',moveTrimDrag); el.addEventListener('pointerup',endTrimDrag); el.addEventListener('pointercancel',endTrimDrag); });
+
+/* ---- slow-motion section: a marked sub-range of the clip that plays (and
+   exports) at a reduced speed. Set it by dragging the blue band handles on the
+   strip, or with the Slow-from / to-here buttons at the playhead. ---- */
+let slowRateDefault=0.25, slowDrag=null;
+function startSlowDrag(edge, e){ if(!curClip||!vid.duration||!curClip.slow) return; e.stopPropagation(); e.preventDefault();
+  slowDrag={m:curClip,edge}; e.currentTarget.setPointerCapture(e.pointerId); e.currentTarget.classList.add('active'); }
+function moveSlowDrag(e){
+  if(!slowDrag) return;
+  const r=$('#trimtrack').getBoundingClientRect();
+  const x=Math.max(0,Math.min(r.width, e.clientX-r.left));
+  const time=trimT0 + x/r.width*trimSpan;
+  const m=slowDrag.m, sw=m.slow, lo=clipStart(m), hi=clipEnd(m), snap=v=>Math.round(v*10)/10;
+  if(slowDrag.edge==='from') sw.from=Math.max(lo, Math.min(sw.to-0.1, snap(time)));
+  else                       sw.to  =Math.min(hi, Math.max(sw.from+0.1, snap(time)));
+  drawTrim();
+}
+function endSlowDrag(){ if(!slowDrag) return; const m=slowDrag.m; slowDrag=null;
+  $('#trimslowL').classList.remove('active'); $('#trimslowR').classList.remove('active');
+  touch(m); save(); drawTrim(); }
+$('#trimslowL').addEventListener('pointerdown', e=>startSlowDrag('from',e));
+$('#trimslowR').addEventListener('pointerdown', e=>startSlowDrag('to',e));
+[$('#trimslowL'),$('#trimslowR')].forEach(el=>{ el.addEventListener('pointermove',moveSlowDrag); el.addEventListener('pointerup',endSlowDrag); el.addEventListener('pointercancel',endSlowDrag); });
+$('#slowfrom').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
+  const lo=clipStart(curClip), hi=clipEnd(curClip), from=Math.max(lo,Math.min(hi-0.1,vid.currentTime));
+  if(!curClip.slow) curClip.slow={from, to:hi, rate:slowRateDefault};
+  else curClip.slow.from=Math.min(from, curClip.slow.to-0.1);
+  touch(curClip); save(); drawTrim(); toast('Slow-mo starts here — '+curClip.slow.rate+'×');
+});
+$('#slowto').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
+  const lo=clipStart(curClip), hi=clipEnd(curClip), to=Math.min(hi,Math.max(lo+0.1,vid.currentTime));
+  if(!curClip.slow) curClip.slow={from:lo, to, rate:slowRateDefault};
+  else curClip.slow.to=Math.max(to, curClip.slow.from+0.1);
+  touch(curClip); save(); drawTrim(); toast('Slow-mo ends here — '+curClip.slow.rate+'×');
+});
+$('#slowclear').addEventListener('click',()=>{ if(!curClip||!curClip.slow) return toast('No slow-mo on this clip');
+  delete curClip.slow; touch(curClip); save(); drawTrim(); toast('Slow-mo removed');
+});
+$$('[data-slow]').forEach(b=>b.addEventListener('click',()=>{
+  const r=+b.dataset.slow; slowRateDefault=r;
+  if(curClip && curClip.slow){ curClip.slow.rate=r; touch(curClip); save(); }
+  drawTrim();
+}));
+/* while a clip with a slow section is playing, drop to its speed inside the band
+   and return to the chosen whole-video speed outside it */
+function applyClipSlowmo(){
+  if(exporting || !curClip || !curClip.slow) return;
+  const sw=curClip.slow, t=vid.currentTime;
+  const want=(t>=sw.from && t<=sw.to) ? sw.rate : userRate;
+  if(Math.abs(vid.playbackRate-want)>1e-3) vid.playbackRate=want;
+}
 /* Hold a clamp (on the strip OR the main bar) and tap the arrow keys to nudge
    that edge in half-second steps. The arrow follows the clamp: on the BEFORE
    clamp, ← grows it (more before) and → shrinks it; on the AFTER clamp it's the
@@ -3507,6 +3600,7 @@ function render(){
 
 function loopRender(){
   if(vid.paused) return;
+  applyClipSlowmo();   /* drop to slow-mo speed inside a clip's marked section */
   updateTC();   /* check the freeze every frame, not just ~4x/sec on timeupdate, so it
                    catches the beat promptly and a freeze-only mark doesn't blink */
   render();
@@ -4268,9 +4362,12 @@ async function exportClip(){
     const holdAt=async ()=>{ if(hold<=0) return; const t0=performance.now();
       await new Promise(res=>{ (function h(){ frame();
         performance.now()-t0<hold*1000?requestAnimationFrame(h):res(); })(); }); };
+    const rateAt=t=>{ const sw=curClip.slow; return (sw && t>=sw.from && t<=sw.to) ? sw.rate : 1; };
     const playTo=async to=>{
       await vid.play().catch(e=>{ throw new Error('playback blocked during export: '+(e&&e.name)); });
-      await new Promise(res=>{ (function f(){ frame();
+      await new Promise(res=>{ (function f(){
+        const wr=rateAt(vid.currentTime); if(Math.abs(vid.playbackRate-wr)>1e-3) vid.playbackRate=wr;
+        frame();
         (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); });
       vid.pause(); };
 
@@ -4404,8 +4501,11 @@ async function compileReel(){
       const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
         await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
       const holdAt=async ()=>{ if(hold>0) await runFor(hold*1000, ()=>frame()); };
+      const rateAt=t=>{ const sw=m.slow; return (sw && t>=sw.from && t<=sw.to) ? sw.rate : 1; };
       const playTo=async to=>{ await vid.play();
-        await new Promise(res=>{ (function f(){ frame();
+        await new Promise(res=>{ (function f(){
+          const wr=rateAt(vid.currentTime); if(Math.abs(vid.playbackRate-wr)>1e-3) vid.playbackRate=wr;
+          frame();
           (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); }); vid.pause(); };
 
       await seekTo(mStart);
