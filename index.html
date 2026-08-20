@@ -2689,6 +2689,7 @@ draw.addEventListener('pointerdown', e=>{
   }
   if(!e.shiftKey && selection.length){ selection=[]; render(); }
   if(!tool){ marquee={a:p,b:p,add:e.shiftKey}; return; }   /* no tool, not panning: drag a selection box */
+  if(!vid.paused) vid.pause();   /* freeze the frame the moment you start drawing a mark */
   if(tool==='disc'){ createMarkerInline(p); return; }
   if(tool==='text'){ createTextInline(p); return; }
   if(tool==='pen'||tool==='runpen'){ dragging={tool,color,pts:[p]}; return; }
@@ -3783,11 +3784,15 @@ function updateZoneControls(){
   const s = (!marksHidden && curClip && vid.paused) ? selectedZone() : null;
   if(!s){ if(zoneCtl) zoneCtl.style.display='none'; return; }
   const el=ensureZoneCtl();
-  const P=zonePts(s), c=shapeCenter(s);
+  const P=zonePts(s);
   const vr=vid.getBoundingClientRect(), wrap=document.querySelector('.canvaswrap').getBoundingClientRect();
-  if(!vr.width || !c){ el.style.display='none'; return; }
-  const topY=Math.min(...P.map(q=>q.y));
-  let sx=vr.left + c.x*vr.width, sy=vr.top + topY*vr.height - 22;   /* float just above the top edge */
+  if(!vr.width || !P.length){ el.style.display='none'; return; }
+  /* anchor to the bounding-box top-centre, not the centroid: adding a corner puts
+     the new point on an existing edge and removing drops the flattest vertex, so
+     the box (and this anchor) hold still while the centroid would jump. */
+  const xs=P.map(q=>q.x), ys=P.map(q=>q.y);
+  const cx=(Math.min(...xs)+Math.max(...xs))/2, topY=Math.min(...ys);
+  let sx=vr.left + cx*vr.width, sy=vr.top + topY*vr.height - 22;   /* float just above the top edge */
   sx=Math.max(wrap.left+30, Math.min(wrap.right-30, sx));
   sy=Math.max(wrap.top+18,  Math.min(wrap.bottom-18, sy));
   el.style.left=(sx-wrap.left)+'px'; el.style.top=(sy-wrap.top)+'px';
