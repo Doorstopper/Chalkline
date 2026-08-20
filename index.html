@@ -293,6 +293,10 @@ button{cursor:pointer;border:none;background:none}
 .freezedel:hover{background:#C0392B;color:#fff}
 .freezecap{font-family:var(--mono);font-size:10px;color:#FFB454;text-transform:none;letter-spacing:0}
 .tbtn[data-hold][aria-pressed="true"]{background:#FFB454;color:#0C1711;border-color:#FFB454}
+/* markup markers: a small tag-coloured dot at each drawn moment, along the top */
+.trimmarks{position:absolute;inset:0;pointer-events:none}
+.trimmark{position:absolute;top:2px;width:7px;height:7px;border-radius:50%;transform:translateX(-50%);
+  border:1px solid rgba(6,12,9,.7);box-shadow:0 0 2px rgba(0,0,0,.5)}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -572,6 +576,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <div class="trimfill" id="trimfill"></div>
             <div class="trimslows" id="trimslows"></div>
             <div class="trimfreezes" id="trimfreezes"></div>
+            <div class="trimmarks" id="trimmarks"></div>
             <div class="trimbeat" id="trimbeat"></div>
             <div class="trimhead" id="trimhead" style="display:none"></div>
             <div class="trimhandle" id="trimhL" title="Drag to change how much plays before"></div>
@@ -2405,12 +2410,13 @@ function drawRail(){
 /* Zoomed trim strip: shows just the selected clip's neighbourhood so the
    before/after handles are big and easy to grab even on a long game. */
 let trimT0=0, trimSpan=1, slowSig='', slowDrag=null, slowRateDefault=0.25, slowPending=null;
-let freezeSig='', freezeDrag=null, freezeHoldDefault=2;
+let freezeSig='', freezeDrag=null, freezeHoldDefault=2, markSig='';
 function drawTrim(){
   const tb=$('#trimbar'); if(!tb) return;
   if(!curClip || !vid.duration){ tb.style.display='none';
     const host0=$('#trimslows'); if(host0){ host0.innerHTML=''; } slowSig='';
     const hf0=$('#trimfreezes'); if(hf0){ hf0.innerHTML=''; } freezeSig='';
+    const hm0=$('#trimmarks'); if(hm0){ hm0.innerHTML=''; } markSig='';
     const cap0=$('#slowcap'); if(cap0) cap0.textContent='';
     const fc0=$('#freezecap'); if(fc0) fc0.textContent=''; return; }
   tb.style.display='flex';
@@ -2438,6 +2444,27 @@ function drawTrim(){
   renderFreezeMarks();      /* the orange freeze points */
   updateFreezeHoldBtns();
   updateFreezeCaption();
+  renderMarkupTicks();      /* tag-coloured dots at each drawn moment */
+}
+/* Show where the markups sit on the same strip as the slow-mo/freeze marks: a
+   small dot, in the tag colour, at each moment that carries a drawing. */
+function renderMarkupTicks(){
+  const host=$('#trimmarks'); if(!host || !curClip) return;
+  const shapes=(curClip.shapes||[]).filter(x=>x.t!=null && x.tool!=='ground');
+  const times=[...new Set(shapes.map(x=>x.t))].sort((a,b)=>a-b);
+  const s=clipStart(curClip), e=clipEnd(curClip);
+  const colOf=t=>{ const sh=shapes.find(x=>x.t===t); return (COLORS[sh&&sh.color]||COLORS.ball).hex; };
+  const sig=curClip.id+'|'+trimT0.toFixed(3)+'|'+trimSpan.toFixed(3)+'|'+JSON.stringify(times.map(t=>[t,colOf(t)]));
+  if(sig===markSig) return; markSig=sig;
+  const pos=t=>((t-trimT0)/trimSpan*100);
+  host.innerHTML='';
+  times.forEach(t=>{
+    if(t<trimT0-0.05 || t>trimT0+trimSpan+0.05) return;
+    const d=document.createElement('div'); d.className='trimmark';
+    d.style.left=pos(t)+'%'; d.style.background=colOf(t);
+    d.title='Markup at this moment';
+    host.appendChild(d);
+  });
 }
 /* Rebuild the slow-mo bands only when the set (or the strip's zoom) actually
    changes — never every frame, and never mid-drag, so a drag isn't yanked out
