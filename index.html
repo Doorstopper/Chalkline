@@ -266,6 +266,10 @@ button{cursor:pointer;border:none;background:none}
 .trimslows{position:absolute;inset:0;pointer-events:none}
 .trimslow{position:absolute;top:0;bottom:0;background:rgba(143,196,255,.26);
   border-left:1px solid #8FC4FF;border-right:1px solid #8FC4FF;pointer-events:none}
+.slowdel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;padding:0;
+  border:none;border-radius:50%;background:rgba(6,13,10,.82);color:#EEF3EC;font:700 13px/1 system-ui,sans-serif;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;pointer-events:auto;z-index:6}
+.slowdel:hover{background:#C0392B;color:#fff}
 .trimslowh{position:absolute;top:0;bottom:0;width:20px;transform:translateX(-50%);z-index:4;cursor:ew-resize;
   touch-action:none;pointer-events:auto;display:flex;align-items:center;justify-content:center}
 .trimslowh::before{content:"";width:4px;height:60%;background:#8FC4FF;border-radius:3px;transition:width .08s,background .08s}
@@ -2409,6 +2413,11 @@ function renderSlowBands(){
     const a=Math.max(s,z.from), b=Math.min(e,z.to);
     const band=document.createElement('div'); band.className='trimslow';
     band.style.left=pos(a)+'%'; band.style.width=Math.max(0,pos(b)-pos(a))+'%'; band.title=z.rate+'× slow-mo';
+    const del=document.createElement('button'); del.className='slowdel'; del.type='button'; del.textContent='×';
+    del.title='Remove this slow-mo section';
+    del.addEventListener('pointerdown', ev=>ev.stopPropagation());
+    del.addEventListener('click', ev=>{ ev.stopPropagation(); removeSlowZone(idx); });
+    band.appendChild(del);
     host.appendChild(band);
     ['from','to'].forEach(edge=>{
       const h=document.createElement('div'); h.className='trimslowh';
@@ -2497,6 +2506,11 @@ function moveSlowDrag(e){
 function endSlowDrag(){ if(!slowDrag) return; const m=slowDrag.m; slowDrag=null;
   $$('#trimslows .trimslowh').forEach(h=>h.classList.remove('active'));
   slowSig=''; touch(m); save(); drawTrim(); }
+function removeSlowZone(idx){        /* the × on a band removes exactly that section, no timing needed */
+  const zones=slowZones(curClip); if(!zones[idx]) return;
+  zones.splice(idx,1); if(!zones.length) delete curClip.slow;
+  slowSig=''; touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
+}
 $('#slowfrom').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
   const lo=clipStart(curClip), hi=clipEnd(curClip);
   slowPending=Math.max(lo, Math.min(hi-0.1, vid.currentTime));
