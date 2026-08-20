@@ -270,6 +270,10 @@ button{cursor:pointer;border:none;background:none}
   touch-action:none;pointer-events:auto;display:flex;align-items:center;justify-content:center}
 .trimslowh::before{content:"";width:4px;height:60%;background:#8FC4FF;border-radius:3px;transition:width .08s,background .08s}
 .trimslowh:hover::before,.trimslowh.active::before{background:#fff;width:7px}
+/* provisional start clamp shown after "Slow from", before "to here" — pulses */
+.trimslowh.pending{pointer-events:none;z-index:5}
+.trimslowh.pending::before{height:80%;animation:slowpulse 1s ease-in-out infinite}
+@keyframes slowpulse{0%,100%{opacity:.35}50%{opacity:1}}
 .slowcap{font-family:var(--mono);font-size:10px;color:#8FC4FF;text-transform:none;letter-spacing:0}
 .tbtn[data-slow][aria-pressed="true"]{background:#8FC4FF;color:#0C1711;border-color:#8FC4FF}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
@@ -2395,7 +2399,7 @@ function zoneUnderHead(){ const z=slowZones(curClip); const t=vid.currentTime; r
 function renderSlowBands(){
   const host=$('#trimslows'); if(!host || !curClip) return;
   const zones=slowZones(curClip), s=clipStart(curClip), e=clipEnd(curClip);
-  const sig=curClip.id+'|'+trimT0.toFixed(3)+'|'+trimSpan.toFixed(3)+'|'+JSON.stringify(zones);
+  const sig=curClip.id+'|'+trimT0.toFixed(3)+'|'+trimSpan.toFixed(3)+'|'+JSON.stringify(zones)+'|p'+slowPending;
   if(slowDrag) return;              /* mid-drag: moveSlowDrag repositions in place */
   if(sig===slowSig) return;         /* nothing changed → keep the DOM */
   slowSig=sig;
@@ -2417,6 +2421,15 @@ function renderSlowBands(){
       host.appendChild(h);
     });
   });
+  /* provisional start marker (appended AFTER the zones so it never shifts the
+     children[idx*3] indexing): the left clamp shows the moment you press "Slow
+     from", before you've set the end with "to here" */
+  if(slowPending!=null){
+    const pm=document.createElement('div'); pm.className='trimslowh pending';
+    pm.style.left=pos(Math.max(s,Math.min(e,slowPending)))+'%';
+    pm.title='Slow-mo start — press “to here” to finish';
+    host.appendChild(pm);
+  }
 }
 function positionSlowBand(idx){                     /* live reposition of one band during a drag */
   const host=$('#trimslows'); if(!host||!curClip||!slowZones(curClip)[idx]) return;
@@ -2487,7 +2500,8 @@ function endSlowDrag(){ if(!slowDrag) return; const m=slowDrag.m; slowDrag=null;
 $('#slowfrom').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
   const lo=clipStart(curClip), hi=clipEnd(curClip);
   slowPending=Math.max(lo, Math.min(hi-0.1, vid.currentTime));
-  updateSlowCaption(); toast('Slow-mo start set — scrub to the end and press “to here”');
+  slowSig=''; drawTrim();   /* show the provisional left clamp right away */
+  toast('Slow-mo start set — scrub to the end and press “to here”');
 });
 $('#slowto').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
   if(slowPending==null) return toast('Press “Slow from” first');
@@ -2501,7 +2515,7 @@ $('#slowto').addEventListener('click',()=>{ if(!curClip) return toast('Pick a cl
   toast('Slow-mo section added — '+slowRateDefault+'× ('+curClip.slow.length+' total)');
 });
 $('#slowclear').addEventListener('click',()=>{
-  if(slowPending!=null){ slowPending=null; updateSlowCaption(); return toast('Cancelled — start point cleared'); }
+  if(slowPending!=null){ slowPending=null; slowSig=''; drawTrim(); return toast('Cancelled — start point cleared'); }
   const zones=slowZones(curClip);
   if(!curClip || !zones.length) return toast('No slow-mo on this clip');
   const t=vid.currentTime; let idx=zones.findIndex(z=>t>=z.from && t<=z.to); if(idx<0) idx=zones.length-1;
@@ -2543,10 +2557,14 @@ document.addEventListener('keydown', e=>{
   touch(m); drawTrim(); drawRail(); renderClips(); save();
 }, true);
 $('#trimtrack').addEventListener('click', e=>{
-  if(e.target.classList.contains('trimhandle') || !curClip || !vid.duration) return;
+  if(e.target.classList.contains('trimhandle') || e.target.classList.contains('trimslowh') || !curClip || !vid.duration) return;
   const r=$('#trimtrack').getBoundingClientRect();
-  vid.currentTime = trimT0 + Math.max(0,Math.min(r.width, e.clientX-r.left))/r.width*trimSpan;
-  loopArmed=false; render();
+  const t = trimT0 + Math.max(0,Math.min(r.width, e.clientX-r.left))/r.width*trimSpan;
+  vid.currentTime = t;
+  /* clicking within the clip's own before/after window keeps it looping; only a
+     click out in the grey padding steps outside the loop */
+  loopArmed = (t >= clipStart(curClip) && t <= clipEnd(curClip));
+  render();
 });
 $('#rail').addEventListener('click',e=>{
   if(!vid.duration) return;
