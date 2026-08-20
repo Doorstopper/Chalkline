@@ -2563,6 +2563,16 @@ const TOOLS = [
 ];
 let tool='spot', color='ours', discN=1;
 
+/* Pick a drawing tool. If you're zoomed in with pan on, choosing a tool means
+   "I want to draw" — so drop out of pan mode and select it (rather than toggling
+   it off), otherwise a plain drag would keep panning and you could never mark up
+   a zoomed frame. At 100% (no pan) it's the normal tap-to-toggle. */
+function pickTool(id){
+  cancelChain(false);
+  if(panMode){ setPanMode(false); tool = id; }
+  else tool = (tool===id ? null : id);
+  renderTools();
+}
 function renderTools(){
   const g=$('#toolgrid'); g.innerHTML='';
   TOOLS.forEach(t=>{
@@ -2570,7 +2580,7 @@ function renderTools(){
     b.className='tool'; b.setAttribute('aria-pressed', t.id===tool); b.title=t.name+(t.key?'  ('+t.key+')':'');
     b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"
       stroke-linecap="round" stroke-linejoin="round">${t.icon}</svg><span>${t.name}</span>`;
-    b.addEventListener('click',()=>{ cancelChain(false); tool = (tool===t.id ? null : t.id); renderTools(); });
+    b.addEventListener('click',()=>pickTool(t.id));
     g.appendChild(b);
   });
   const sw=$('#swatches'); sw.innerHTML='';
@@ -4467,7 +4477,7 @@ document.addEventListener('keydown',e=>{
     return;
   }
   const t=TOOLS.find(x=>x.key===e.key);
-  if(t){ tool = (tool===t.id ? null : t.id); renderTools(); return; }
+  if(t){ pickTool(t.id); return; }
   const ti=TAGKEYS.indexOf(e.key.toLowerCase());
   if(ti>-1 && ti<S.pads.length){ e.preventDefault(); tagNow(ti); return; }
   /* While a rail mark's card is up (hovering the scrub bar), Left/Right step the
