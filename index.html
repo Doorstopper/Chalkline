@@ -253,17 +253,19 @@ button{cursor:pointer;border:none;background:none}
 .trimcap{font-family:var(--mono);font-size:11px;letter-spacing:.03em;color:var(--chalk-dim);flex:none;min-width:66px}
 .trimcap.active{color:var(--flood);font-weight:700}
 .trimcap#trimcapR{text-align:right}
-.trimtrack{position:relative;flex:1;height:26px;background:#0A130E;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer}
-.trimfill{position:absolute;top:0;bottom:0;background:rgba(255,201,60,.18)}
-.trimbeat{position:absolute;top:3px;bottom:3px;width:2px;background:var(--chalk);transform:translateX(-50%)}
-.trimhead{position:absolute;top:0;bottom:0;width:2px;background:#8FC4FF;transform:translateX(-50%);pointer-events:none}
-.trimhandle{position:absolute;top:0;bottom:0;width:22px;transform:translateX(-50%);z-index:3;cursor:ew-resize;touch-action:none;
+/* --mlane is the height of the stacked markup rows across the top; the timeline
+   (fill, slow, freeze, moment, handles) sits below it and the strip grows to fit */
+.trimtrack{position:relative;flex:1;--mlane:9px;height:calc(20px + var(--mlane));background:#0A130E;border:1px solid var(--line);border-radius:var(--r);overflow:hidden;cursor:pointer}
+.trimfill{position:absolute;top:var(--mlane);bottom:0;background:rgba(255,201,60,.18)}
+.trimbeat{position:absolute;top:calc(var(--mlane) + 3px);bottom:3px;width:2px;background:var(--chalk);transform:translateX(-50%)}
+.trimhead{position:absolute;top:var(--mlane);bottom:0;width:2px;background:#8FC4FF;transform:translateX(-50%);pointer-events:none}
+.trimhandle{position:absolute;top:var(--mlane);bottom:0;width:22px;transform:translateX(-50%);z-index:3;cursor:ew-resize;touch-action:none;
   display:flex;align-items:center;justify-content:center}
 .trimhandle::before{content:"";width:5px;height:78%;background:var(--flood);border-radius:3px;transition:width .08s,background .08s}
 .trimhandle:hover::before,.trimhandle.active::before{background:#fff;width:8px}
 /* slow-mo sections drawn as blue bands on the trim strip, each with its own
    handles; the container passes clicks through except on the handles */
-.trimslows{position:absolute;inset:0;pointer-events:none}
+.trimslows{position:absolute;top:var(--mlane);left:0;right:0;bottom:0;pointer-events:none}
 .trimslow{position:absolute;top:0;bottom:0;background:rgba(143,196,255,.26);
   border-left:1px solid #8FC4FF;border-right:1px solid #8FC4FF;pointer-events:none}
 .slowdel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:16px;height:16px;padding:0;
@@ -281,7 +283,7 @@ button{cursor:pointer;border:none;background:none}
 .slowcap{font-family:var(--mono);font-size:10px;color:#8FC4FF;text-transform:none;letter-spacing:0}
 .tbtn[data-slow][aria-pressed="true"]{background:#8FC4FF;color:#0C1711;border-color:#8FC4FF}
 /* freeze points: an orange line on the trim strip you can drag, each with a × */
-.trimfreezes{position:absolute;inset:0;pointer-events:none}
+.trimfreezes{position:absolute;top:var(--mlane);left:0;right:0;bottom:0;pointer-events:none}
 .trimfreeze{position:absolute;top:0;bottom:0;width:16px;transform:translateX(-50%);z-index:5;pointer-events:auto;
   cursor:ew-resize;touch-action:none}
 .trimfreeze::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);
@@ -295,14 +297,14 @@ button{cursor:pointer;border:none;background:none}
 .tbtn[data-hold][aria-pressed="true"]{background:#FFB454;color:#0C1711;border-color:#FFB454}
 /* markup bands: a tag-coloured bar per drawn moment in a slim top lane — drag the
    bar to move when it shows, drag its right edge to change how long it shows */
-.trimmarks{position:absolute;top:0;left:0;right:0;height:9px;pointer-events:none;z-index:6}
+.trimmarks{position:absolute;top:0;left:0;right:0;height:var(--mlane);pointer-events:none;z-index:6}
 .trimmark{position:absolute;top:1px;height:7px;border-radius:4px;pointer-events:auto;cursor:grab;
   border:1px solid rgba(6,12,9,.65);box-shadow:0 0 2px rgba(0,0,0,.5);opacity:.95;touch-action:none}
-.trimmark:hover,.trimmark.active{filter:brightness(1.15);height:8px;top:0}
+.trimmark:hover,.trimmark.active{filter:brightness(1.15)}
 .trimmark:hover{z-index:10}   /* hovering any band lifts it so its end handle is reachable */
 .trimmark.active{cursor:grabbing}
 /* the selected markup rides above overlapping bands so its length handle is grabbable */
-.trimmark.sel{z-index:9;height:9px;top:0;box-shadow:0 0 0 1.5px #fff,0 0 3px rgba(0,0,0,.7)}
+.trimmark.sel{z-index:9;box-shadow:0 0 0 1.5px #fff,0 0 3px rgba(0,0,0,.7)}
 .trimmarkdur{position:absolute;top:-2px;right:-4px;width:9px;height:calc(100% + 4px);cursor:ew-resize;pointer-events:auto;touch-action:none}
 .trimmarkdur::after{content:"";position:absolute;top:2px;bottom:2px;right:3px;width:2px;background:rgba(6,12,9,.65);border-radius:2px}
 /* tool-type icon at the start of each markup band, dark for contrast on the
@@ -2537,12 +2539,28 @@ function renderMarkupBands(){
   if(markDrag) return;
   if(sig===markSig) return; markSig=sig;
   host.innerHTML='';
+  /* pack overlapping bands into stacked rows so none ever hides another's end
+     handle; the strip grows to fit the rows */
+  const ROWH=9, MAXROWS=5, s=clipStart(curClip), e=clipEnd(curClip);
+  const items=times.filter(t=> t>=trimT0-0.05 && t<=trimT0+trimSpan+0.05)
+    .map(t=>{ const i=beatInfo(t), a=Math.max(s,Math.min(e,t)), b=Math.max(a,Math.min(e,t+i.dur)); return {t,i,a,b}; })
+    .sort((x,y)=> x.a-y.a);
+  const rowEnds=[];
+  items.forEach(it=>{
+    let row=-1;
+    for(let r=0;r<rowEnds.length;r++){ if(it.a >= rowEnds[r]-1e-6){ row=r; break; } }
+    if(row<0){ if(rowEnds.length<MAXROWS){ row=rowEnds.length; rowEnds.push(it.b); } else { row=MAXROWS-1; rowEnds[row]=Math.max(rowEnds[row],it.b); } }
+    else rowEnds[row]=it.b;
+    it.row=row;
+  });
+  const numRows=Math.max(1, rowEnds.length);
+  const track=$('#trimtrack'); if(track) track.style.setProperty('--mlane', (numRows*ROWH)+'px');
   let activeBand=null;
-  times.forEach(t=>{
-    if(t<trimT0-0.05 || t>trimT0+trimSpan+0.05) return;
-    const i=beatInfo(t);
+  items.forEach(it=>{
+    const t=it.t, i=it.i;
     const band=document.createElement('div'); band.className='trimmark';
     band.style.background=i.col; band._t=t;
+    band.style.top=(it.row*ROWH+1)+'px'; band.style.height=(ROWH-2)+'px';
     if(activeT!=null && Math.abs(t-activeT)<1e-6){ band.classList.add('sel'); activeBand=band; }
     band.title=markTitle(t);
     const ico=document.createElement('div'); ico.className='trimmarkico';
