@@ -302,6 +302,11 @@ button{cursor:pointer;border:none;background:none}
 .trimmark.active{cursor:grabbing}
 .trimmarkdur{position:absolute;top:-2px;right:-4px;width:9px;height:calc(100% + 4px);cursor:ew-resize;pointer-events:auto;touch-action:none}
 .trimmarkdur::after{content:"";position:absolute;top:2px;bottom:2px;right:3px;width:2px;background:rgba(6,12,9,.65);border-radius:2px}
+/* tool-type icon at the start of each markup band, dark for contrast on the
+   bright tag colour, so you can tell an arrow from text from a spotlight */
+.trimmarkico{position:absolute;left:0;top:50%;transform:translateY(-50%);width:11px;height:11px;
+  color:#0C1711;pointer-events:none;filter:drop-shadow(0 0 1px rgba(255,255,255,.5))}
+.trimmarkico svg{width:11px;height:11px;display:block}
 /* compact number input to match .tbtn, e.g. custom freeze hold */
 .tnum{width:44px;border:1px solid var(--line);border-radius:var(--r);padding:6px 3px;background:var(--turf);
   font-family:var(--mono);font-size:11px;letter-spacing:.02em;color:var(--chalk);text-align:center;min-width:0;
@@ -2491,12 +2496,25 @@ function positionMarkBand(band, t){
   const a=Math.max(s,Math.min(e,t)), b=Math.max(a,Math.min(e,t+i.dur));
   band.style.left=pos(a)+'%'; band.style.width=Math.max(1.2,pos(b)-pos(a))+'%';
 }
+function toolName(id){ const t=TOOLS.find(tt=>tt.id===id); return t?t.name:id; }
+function toolIconSVG(id){ const t=TOOLS.find(tt=>tt.id===id);
+  return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">'+(t?t.icon:'')+'</svg>'; }
+/* plain-English description of the markup(s) at a moment, for the hover tooltip */
+function markTitle(t){
+  const shs=markShapes().filter(x=>Math.abs(x.t-t)<1e-6);
+  const parts=[...new Set(shs.map(s=>{
+    const nm=toolName(s.tool);
+    return ((s.tool==='text'||s.tool==='callout') && s.text) ? nm+' “'+s.text.slice(0,24)+'”' : nm;
+  }))];
+  const off=Math.max(0, t-clipStart(curClip));
+  return (parts.join(' + ')||'Markup')+' · '+off.toFixed(1)+'s in · click to view';
+}
 function renderMarkupBands(){
   const host=$('#trimmarks'); if(!host || !curClip) return;
   const shapes=markShapes();
   const times=[...new Set(shapes.map(x=>x.t))].sort((a,b)=>a-b);
   const sig=curClip.id+'|'+trimT0.toFixed(3)+'|'+trimSpan.toFixed(3)+'|'+(+$('#hold').value||0)
-    +'|'+JSON.stringify(times.map(t=>{ const i=beatInfo(t); return [t, i.keep?'K':i.dur.toFixed(2), i.col]; }));
+    +'|'+JSON.stringify(times.map(t=>{ const i=beatInfo(t); return [t, i.keep?'K':i.dur.toFixed(2), i.col, i.shs.map(x=>x.tool).join(','), i.shs.map(x=>x.text||'').join('')]; }));
   if(markDrag) return;
   if(sig===markSig) return; markSig=sig;
   host.innerHTML='';
@@ -2505,7 +2523,10 @@ function renderMarkupBands(){
     const i=beatInfo(t);
     const band=document.createElement('div'); band.className='trimmark';
     band.style.background=i.col; band._t=t;
-    band.title='Markup — drag to move it, drag the right edge to change how long it shows';
+    band.title=markTitle(t);
+    const ico=document.createElement('div'); ico.className='trimmarkico';
+    ico.innerHTML=toolIconSVG((i.shs[0]||{}).tool);
+    band.appendChild(ico);
     band.addEventListener('pointerdown', ev=>startMarkDrag('move', band, ev));
     band.addEventListener('pointermove', moveMarkDrag);
     band.addEventListener('pointerup', endMarkDrag);
@@ -2546,11 +2567,19 @@ function moveMarkDrag(e){
   positionMarkBand(markDrag.band, markDrag.band._t);
   render();   /* live-update how the mark shows on the frame */
 }
-function endMarkDrag(){ if(!markDrag) return; const b=markDrag.band, moved=markDrag.moved; markDrag=null;
+function endMarkDrag(){ if(!markDrag) return; const b=markDrag.band, moved=markDrag.moved, shs=markDrag.shapes; markDrag=null;
   if(b) b.classList.remove('active');
   markSig='';
-  if(moved){ touch(curClip); commit(); }   /* only record an edit if something actually changed */
-  drawTrim(); }
+  if(moved){ touch(curClip); commit(); drawTrim(); return; }
+  /* a click (no drag): jump to the moment and select the markup(s) so you see
+     exactly what it is on the frame, and toast its name */
+  if(shs && shs.length){
+    const t=shs[0].t; loopArmed=false;
+    if(vid.duration){ vid.currentTime=Math.max(0, Math.min(vid.duration, t)); }
+    selection = shs.slice();
+    toast(markTitle(t).replace(' · click to view',''));
+  }
+  drawTrim(); render(); }
 /* Rebuild the slow-mo bands only when the set (or the strip's zoom) actually
    changes — never every frame, and never mid-drag, so a drag isn't yanked out
    from under the pointer. */
