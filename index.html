@@ -1341,7 +1341,17 @@ async function loadVideo(file){
   $('#dropzone h2').textContent='Opening '+file.name;
   $('#dropzone p').textContent='Reading the file…';
 
+  /* A load resolves EXACTLY once. Without this guard a stray error alongside a
+     good load could hide the video right after it appeared (flash-then-gone),
+     which is what made you click Reopen twice. */
+  let settled=false, retried=false, slow;
+  const cleanup=()=>{
+    vid.removeEventListener('loadedmetadata',onMeta);
+    vid.removeEventListener('error',onErr);
+    clearTimeout(slow);
+  };
   const ok=()=>{
+    if(settled) return; settled=true; cleanup();
     delete zone.dataset.busy;
     zone.classList.add('hide');
     $('#vidbox').style.display='block';
@@ -1356,27 +1366,11 @@ async function loadVideo(file){
       toast(n+' clip'+(n===1?'':'s')+' remembered for this video');
     }
     fitCanvas(); drawRail(); updateTC(); save();
-    cleanup();
     probeBlack();
   };
-  let retried=false;
-  const fail=()=>{
+  const giveUp=()=>{
+    if(settled) return; settled=true; cleanup();
     const e=vid.error;
-    /* If the file actually decoded its metadata, it's playable — an error fired
-       alongside that is spurious (a slow/transient read, common off a microSD
-       card), so accept the video rather than throw it away. */
-    if(vid.videoWidth && vid.readyState>=1 && isFinite(vid.duration) && vid.duration>0){ ok(); return; }
-    /* Transient read/interrupt errors (codes 1–2) usually clear on a second try —
-       do automatically what you'd do by hand: reopen it once before giving up. */
-    if(!retried && (!e || e.code===1 || e.code===2)){
-      retried=true;
-      $('#dropzone p').textContent='Reading the file… (retrying)';
-      clearTimeout(slow); slow=setTimeout(()=>{ if(zone.dataset.busy) fail(); }, 20000);
-      try{ URL.revokeObjectURL(vidURL); }catch(_){}
-      vidURL=URL.createObjectURL(file);
-      vid.src=vidURL;
-      return;
-    }
     const why = !e ? 'the browser could not read it'
       : e.code===1 ? 'loading was interrupted'
       : e.code===2 ? 'the file could not be read from disk'
@@ -1390,17 +1384,31 @@ async function loadVideo(file){
       esc(file.name)+' — '+why+'.<br><br>'+
       'Most often this is H.265/HEVC or a .mkv container. Converting fixes it and takes a minute:<br>'+
       '<code style="font-size:11px">ffmpeg -i "'+esc(file.name)+'" -c:v libx264 -crf 20 -c:a aac out.mp4</code>';
-    cleanup();
   };
-  function cleanup(){
-    vid.removeEventListener('loadedmetadata',ok);
-    vid.removeEventListener('error',fail);
-    clearTimeout(slow);
-  }
-  vid.addEventListener('loadedmetadata',ok,{once:false});
-  vid.addEventListener('error',fail,{once:false});
-  /* some failures never fire an error at all — don't leave it spinning forever */
-  let slow=setTimeout(()=>{ if(zone.dataset.busy) fail(); }, 20000);
+  const retry=()=>{        /* one clean reload — do automatically what a second click did */
+    retried=true;
+    $('#dropzone p').textContent='Reading the file…';
+    clearTimeout(slow); slow=setTimeout(onStall, 20000);
+    try{ URL.revokeObjectURL(vidURL); }catch(_){}
+    vidURL=URL.createObjectURL(file);
+    vid.src=vidURL; vid.load();
+  };
+  const onMeta=()=>ok();
+  const onErr=()=>{
+    if(settled) return;
+    const e=vid.error;
+    if(!retried && (!e || e.code===1 || e.code===2)){ retry(); return; }  /* transient read/interrupt */
+    giveUp();
+  };
+  const onStall=()=>{      /* metadata never arrived */
+    if(settled) return;
+    if(vid.videoWidth && vid.readyState>=1){ ok(); return; }              /* actually fine, just slow */
+    if(!retried){ retry(); return; }
+    giveUp();
+  };
+  vid.addEventListener('loadedmetadata',onMeta);
+  vid.addEventListener('error',onErr);
+  slow=setTimeout(onStall, 20000);
 
   vid.src = vidURL;
   vid.load();
