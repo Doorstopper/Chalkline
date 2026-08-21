@@ -299,6 +299,7 @@ button{cursor:pointer;border:none;background:none}
 .trimmark{position:absolute;top:1px;height:7px;border-radius:4px;pointer-events:auto;cursor:grab;
   border:1px solid rgba(6,12,9,.65);box-shadow:0 0 2px rgba(0,0,0,.5);opacity:.95;touch-action:none}
 .trimmark:hover,.trimmark.active{filter:brightness(1.15);height:8px;top:0}
+.trimmark:hover{z-index:10}   /* hovering any band lifts it so its end handle is reachable */
 .trimmark.active{cursor:grabbing}
 /* the selected markup rides above overlapping bands so its length handle is grabbable */
 .trimmark.sel{z-index:9;height:9px;top:0;box-shadow:0 0 0 1.5px #fff,0 0 3px rgba(0,0,0,.7)}
