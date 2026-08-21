@@ -300,6 +300,8 @@ button{cursor:pointer;border:none;background:none}
   border:1px solid rgba(6,12,9,.65);box-shadow:0 0 2px rgba(0,0,0,.5);opacity:.95;touch-action:none}
 .trimmark:hover,.trimmark.active{filter:brightness(1.15);height:8px;top:0}
 .trimmark.active{cursor:grabbing}
+/* the selected markup rides above overlapping bands so its length handle is grabbable */
+.trimmark.sel{z-index:9;height:9px;top:0;box-shadow:0 0 0 1.5px #fff,0 0 3px rgba(0,0,0,.7)}
 .trimmarkdur{position:absolute;top:-2px;right:-4px;width:9px;height:calc(100% + 4px);cursor:ew-resize;pointer-events:auto;touch-action:none}
 .trimmarkdur::after{content:"";position:absolute;top:2px;bottom:2px;right:3px;width:2px;background:rgba(6,12,9,.65);border-radius:2px}
 /* tool-type icon at the start of each markup band, dark for contrast on the
@@ -2524,16 +2526,23 @@ function renderMarkupBands(){
   const host=$('#trimmarks'); if(!host || !curClip) return;
   const shapes=markShapes();
   const times=[...new Set(shapes.map(x=>x.t))].sort((a,b)=>a-b);
+  /* the selected beat rides on top so its length handle is always reachable,
+     even where bands overlap */
+  const selSet=new Set(selection);
+  const activeT = times.find(t=> shapes.some(x=>Math.abs(x.t-t)<1e-6 && selSet.has(x)));
   const sig=curClip.id+'|'+trimT0.toFixed(3)+'|'+trimSpan.toFixed(3)+'|'+(+$('#hold').value||0)
+    +'|a'+(activeT==null?'':activeT.toFixed(3))
     +'|'+JSON.stringify(times.map(t=>{ const i=beatInfo(t); return [t, i.keep?'K':i.dur.toFixed(2), i.col, i.shs.map(x=>x.tool).join(','), i.shs.map(x=>x.text||'').join('')]; }));
   if(markDrag) return;
   if(sig===markSig) return; markSig=sig;
   host.innerHTML='';
+  let activeBand=null;
   times.forEach(t=>{
     if(t<trimT0-0.05 || t>trimT0+trimSpan+0.05) return;
     const i=beatInfo(t);
     const band=document.createElement('div'); band.className='trimmark';
     band.style.background=i.col; band._t=t;
+    if(activeT!=null && Math.abs(t-activeT)<1e-6){ band.classList.add('sel'); activeBand=band; }
     band.title=markTitle(t);
     const ico=document.createElement('div'); ico.className='trimmarkico';
     ico.innerHTML=toolIconSVG((i.shs[0]||{}).tool);
@@ -2551,6 +2560,7 @@ function renderMarkupBands(){
     positionMarkBand(band, t);
     host.appendChild(band);
   });
+  if(activeBand) host.appendChild(activeBand);   /* re-append last → on top of overlapping bands */
 }
 function startMarkDrag(mode, band, e){
   const t0=band._t, shs=markShapes().filter(x=>Math.abs(x.t-t0)<1e-6);
