@@ -332,6 +332,9 @@ button{cursor:pointer;border:none;background:none}
 }
 .tbtn:hover{background:var(--turf-hi)}
 .tbtn[aria-pressed="true"]{background:var(--flood);color:#0C1711;border-color:var(--flood);font-weight:600}
+/* fixed width so the Play/Pause text swap (e.g. at a freeze point) doesn't shove
+   the rest of the button bar left and back */
+#playbtn{min-width:62px;text-align:center}
 .tc{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--flood);letter-spacing:.02em}
 .tc small{color:var(--chalk-dim)}
 
