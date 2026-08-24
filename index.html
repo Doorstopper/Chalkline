@@ -142,6 +142,8 @@ button{cursor:pointer;border:none;background:none}
 .fscorner.show{opacity:1;transform:none;pointer-events:auto}
 .fscorner:hover{background:rgba(6,13,10,.85);border-color:rgba(255,255,255,.45)}
 .fscorner svg{width:18px;height:18px;display:block}
+/* mute toggle: sits just left of the full-screen button, round like a YouTube control */
+.mutecorner{right:54px;border-radius:50%}
 /* Space (zone) corner-count pill: floats by the selected shape */
 .zonectl{position:absolute;transform:translate(-50%,-50%);display:flex;align-items:center;gap:1px;z-index:20;
   background:rgba(6,13,10,.86);border:1px solid rgba(255,255,255,.22);border-radius:8px;padding:2px;
@@ -566,6 +568,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <video id="vid" playsinline muted></video>
           <canvas id="draw"></canvas>
         </div>
+        <button class="fscorner mutecorner" id="mutecorner" type="button" aria-label="Mute" title="Mute / unmute"></button>
         <button class="fscorner" id="fscorner" type="button" aria-label="Full screen" title="Full screen"></button>
         <div id="rec"><i></i><span>Recording clip — leave this tab open</span></div>
         <div id="codecwarn">
@@ -1114,7 +1117,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v169';
+const APP_VERSION = 'v170';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1330,8 +1333,11 @@ async function saveVidLib(){
     await Store.set('chalkline:vidindex', idx);
   }catch(e){}
 }
+let loadToken=0;
 async function loadVideo(file){
   if(!file) return;
+  const myToken=++loadToken;   /* only the newest load may touch the UI — a stale
+                                  callback from an earlier load can't hide this one */
   const key = videoKey(file);
   pendingRestore = null;
   /* Switching to a different game? Tuck the current game's clips into its own
@@ -1374,7 +1380,7 @@ async function loadVideo(file){
     clearTimeout(slow);
   };
   const ok=()=>{
-    if(settled) return; settled=true; cleanup();
+    if(settled || myToken!==loadToken) return; settled=true; cleanup();
     delete zone.dataset.busy;
     zone.classList.add('hide');
     $('#vidbox').style.display='block';
@@ -1392,7 +1398,10 @@ async function loadVideo(file){
     probeBlack();
   };
   const giveUp=()=>{
-    if(settled) return; settled=true; cleanup();
+    if(settled || myToken!==loadToken) return;   /* superseded by a newer load → stay quiet */
+    /* never pull down a video that's actually up and playable (belt-and-braces) */
+    if(vid.videoWidth && vid.readyState>=1 && $('#vidbox').style.display==='block'){ settled=true; cleanup(); return; }
+    settled=true; cleanup();
     const e=vid.error;
     const why = !e ? 'the browser could not read it'
       : e.code===1 ? 'loading was interrupted'
@@ -1409,6 +1418,7 @@ async function loadVideo(file){
       '<code style="font-size:11px">ffmpeg -i "'+esc(file.name)+'" -c:v libx264 -crf 20 -c:a aac out.mp4</code>';
   };
   const retry=()=>{        /* one clean reload — do automatically what a second click did */
+    if(myToken!==loadToken) return;
     retried=true;
     $('#dropzone p').textContent='Reading the file…';
     clearTimeout(slow); slow=setTimeout(onStall, 20000);
@@ -1418,13 +1428,13 @@ async function loadVideo(file){
   };
   const onMeta=()=>ok();
   const onErr=()=>{
-    if(settled) return;
+    if(settled || myToken!==loadToken) return;
     const e=vid.error;
     if(!retried && (!e || e.code===1 || e.code===2)){ retry(); return; }  /* transient read/interrupt */
     giveUp();
   };
   const onStall=()=>{      /* metadata never arrived */
-    if(settled) return;
+    if(settled || myToken!==loadToken) return;
     if(vid.videoWidth && vid.readyState>=1){ ok(); return; }              /* actually fine, just slow */
     if(!retried){ retry(); return; }
     giveUp();
@@ -2052,30 +2062,46 @@ function updateFsCorner(){
   b.title = lbl; b.setAttribute('aria-label', lbl);
 }
 updateFsCorner();
+/* mute toggle sitting beside the full-screen button */
+const VOL_ON ='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a10 10 0 0 1 0 14"/></svg>';
+const VOL_OFF='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z"/><line x1="22" y1="9" x2="16" y2="15"/><line x1="16" y1="9" x2="22" y2="15"/></svg>';
+function updateMuteCorner(){
+  const b=$('#mutecorner'); if(!b) return;
+  b.innerHTML = vid.muted ? VOL_OFF : VOL_ON;
+  const lbl = vid.muted ? 'Unmute' : 'Mute'; b.title=lbl; b.setAttribute('aria-label',lbl);
+}
+function setMuted(on){
+  vid.muted=!!on;
+  const mb=$('#mutebtn'); if(mb){ mb.setAttribute('aria-pressed', vid.muted); mb.textContent = vid.muted?'Muted':'Mute'; }
+  updateMuteCorner();
+}
+updateMuteCorner();
 let fsCornerT=null;
+const cornerBtns=()=>$$('.canvaswrap .fscorner');   /* the full-screen + mute corner buttons */
 function showFsCorner(){
   if(!vid.src || immersive) return;     /* full screen drives it via the controls, not the hover timer */
-  const b=$('#fscorner'); if(!b) return;
-  b.classList.add('show'); clearTimeout(fsCornerT);
-  fsCornerT=setTimeout(()=>b.classList.remove('show'), 2600);
+  cornerBtns().forEach(b=>b.classList.add('show')); clearTimeout(fsCornerT);
+  fsCornerT=setTimeout(()=>cornerBtns().forEach(b=>b.classList.remove('show')), 2600);
 }
-/* in full screen, lift the corner button clear above the transport (the scrubber
+/* in full screen, lift the corner buttons clear above the transport (the scrubber
    sits at the top of that overlay); otherwise it's the CSS default bottom-right */
 function positionFsCorner(){
-  const b=$('#fscorner'); if(!b) return;
+  const btns=cornerBtns(); if(!btns.length) return;
+  let bottom='';
   if(immersive){
-    /* sit just above the scrubber (the rail), not above the whole tall transport */
-    const rail=stageEl.querySelector('#rail');
-    const cw=document.querySelector('.canvaswrap');
-    if(rail && cw){ b.style.bottom = Math.max(12, (cw.getBoundingClientRect().bottom - rail.getBoundingClientRect().top) + 10) + 'px'; }
-  } else b.style.bottom = '';
+    const rail=stageEl.querySelector('#rail'), cw=document.querySelector('.canvaswrap');
+    if(rail && cw){ bottom = Math.max(12, (cw.getBoundingClientRect().bottom - rail.getBoundingClientRect().top) + 10) + 'px'; }
+  }
+  btns.forEach(b=>b.style.bottom=bottom);
 }
 { const cw=document.querySelector('.canvaswrap');
   cw.addEventListener('pointermove', showFsCorner);
-  cw.addEventListener('mouseleave', ()=>{ if(immersive) return; clearTimeout(fsCornerT); const b=$('#fscorner'); if(b) b.classList.remove('show'); }); }
+  cw.addEventListener('mouseleave', ()=>{ if(immersive) return; clearTimeout(fsCornerT); cornerBtns().forEach(b=>b.classList.remove('show')); }); }
 window.addEventListener('resize', positionFsCorner);
 $('#fscorner').addEventListener('pointerdown', e=>e.stopPropagation());
 $('#fscorner').addEventListener('click', e=>{ e.stopPropagation(); toggleImmersive(); });
+$('#mutecorner').addEventListener('pointerdown', e=>e.stopPropagation());
+$('#mutecorner').addEventListener('click', e=>{ e.stopPropagation(); setMuted(!vid.muted); });
 function onFSChange(){
   const now = inFullscreen()===stageEl;
   if(now===immersive) return;
@@ -2161,11 +2187,7 @@ $('#freezebtn').addEventListener('click',()=>{
 });
 /* mute the sound while watching — for review only; exports are governed by the
    Export audio panel and are not affected by this. */
-$('#mutebtn').addEventListener('click',()=>{
-  vid.muted=!vid.muted;
-  $('#mutebtn').setAttribute('aria-pressed', vid.muted);
-  $('#mutebtn').textContent = vid.muted ? 'Muted' : 'Mute';
-});
+$('#mutebtn').addEventListener('click',()=>{ setMuted(!vid.muted); });
 /* Show/hide the whole telestration overlay while watching. Purely visual — the
    marks stay in curClip.shapes, so toggling back on restores them untouched. */
 $('#marksbtn').addEventListener('click',()=>{
