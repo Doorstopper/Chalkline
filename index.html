@@ -835,9 +835,10 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <label class="field"><span class="eyebrow">Resolution</span>
             <select id="exportres">
               <option value="480">480p</option>
-              <option value="720" selected>720p</option>
+              <option value="720">720p</option>
               <option value="1080">1080p</option>
-              <option value="source">Match source</option>
+              <option value="source" selected>Match source</option>
+              <option value="ffmpeg">⌁ ffmpeg cut (keeps source, no markup)</option>
             </select>
           </label>
           <label class="field"><span class="eyebrow">Frame rate</span>
@@ -850,7 +851,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             </select>
           </label>
         </div>
-        <div class="hint">Higher settings mean bigger files. Applies to Export clip and the reel (not the ffmpeg cuts).</div>
+        <div class="hint">Higher settings mean bigger files. <b>Match source</b> keeps the footage resolution. <b>⌁ ffmpeg cut</b> makes Export clip / the reel write ffmpeg commands instead — lossless, source resolution, no re-record, but markup isn't burned in.</div>
 
         <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Export audio</div>
@@ -1111,7 +1112,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v166';
+const APP_VERSION = 'v167';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4591,7 +4592,7 @@ function drawPlanedArrow(c, s, W, H, scale, lw, col){
 /* ============================================================
    EXPORT
    ============================================================ */
-function exportMaxH(){ const v=($('#exportres')||{}).value; return (!v||v==='source')?Infinity:(+v||720); }
+function exportMaxH(){ const v=($('#exportres')||{}).value; return (!v||v==='source'||v==='ffmpeg')?Infinity:(+v||720); }
 function exportFps(){ return +(($('#exportfps')||{}).value) || 30; }
 function exportCanvas(){
   const vw=vid.videoWidth||1280, vh=vid.videoHeight||720;
@@ -4832,8 +4833,24 @@ $('#snapstill').addEventListener('click', async ()=>{
 });
 
 $('#exportclip').addEventListener('click', exportClip);
+/* One ffmpeg cut command for a single clip, at the source's own resolution (no
+   scale filter). The browser can't run ffmpeg, so this saves the command to run
+   where the match file is — clean H.264, no real-time recording, markup not
+   burned in. */
+function ffmpegCutClip(m){
+  if(!m) return toast('Pick a clip first');
+  const name=S.videoName||'match.mp4';
+  const s=clipStart(m), d=(clipEnd(m)-s).toFixed(1), out=safe(m.label)+'-'+Math.round(m.t)+'s.mp4';
+  let txt='# Chalkline ffmpeg cut — run this where the match file is. Needs ffmpeg.\n';
+  txt+='# Clean H.264 at the source resolution; no browser recording, no markup.\n\n';
+  txt+=`ffmpeg -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 20 -preset veryfast -c:a aac -b:a 128k "${out}"\n`;
+  download(new Blob([txt],{type:'text/plain'}), 'chalkline-cut-'+safe(m.label)+'-'+stamp()+'.txt');
+  toast('ffmpeg cut command saved — run it where the match file is');
+}
 async function exportClip(){
-  if(!curClip||!vid.videoWidth) return toast('Pick a clip first');
+  if(!curClip) return toast('Pick a clip first');
+  if(($('#exportres')||{}).value==='ffmpeg') return ffmpegCutClip(curClip);   /* dropdown set to ffmpeg */
+  if(!vid.videoWidth) return toast('Pick a clip first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
   if(!videoReadable()) return warnBlank();
@@ -4958,6 +4975,7 @@ function paintTitleCard(c,W,H,m,i,total){
 }
 
 async function compileReel(){
+  if(($('#exportres')||{}).value==='ffmpeg'){ $('#exportall').click(); return; }   /* ffmpeg reel = cut list + join */
   if(!vid.videoWidth) return toast('Load the match first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(!videoReadable()) return warnBlank();
