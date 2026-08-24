@@ -51,6 +51,7 @@ button{cursor:pointer;border:none;background:none}
   border-bottom:1px solid var(--line);background:var(--turf);
 }
 .brand{font-family:var(--display);font-weight:700;font-size:22px;letter-spacing:.06em;text-transform:uppercase}
+.ver{font-family:var(--mono);font-size:10px;font-weight:400;letter-spacing:.04em;color:var(--chalk-dim);text-transform:none;opacity:.65;vertical-align:middle}
 .brand em{font-style:normal;color:var(--flood)}
 .tabs{display:flex;gap:2px;margin-left:auto}
 .tab{
@@ -510,7 +511,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 </style>
 
 <div id="top">
-  <div class="brand">Chalk<em>line</em></div>
+  <div class="brand">Chalk<em>line</em> <span class="ver" id="appver" title="App version — check it matches after an update"></span></div>
   <div class="eyebrow" id="ctx">no session</div>
   <div class="tabs" role="tablist">
     <button class="tab" role="tab" aria-selected="true" data-view="studio">Studio</button>
@@ -1107,6 +1108,11 @@ const Store = (()=>{
 const KEY = 'chalkline:session';
 const $  = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+
+/* Shown discreetly by the logo so you can confirm which build has loaded after an
+   update. Keep in step with the CACHE version in sw.js on every deploy. */
+const APP_VERSION = 'v163';
+{ const av=$('#appver'); if(av) av.textContent=APP_VERSION; }
 
 const COLORS = {
   ours:  {hex:'#3B9EFF', name:'Us'},

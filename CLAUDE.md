@@ -12,6 +12,8 @@ Chalkline is a single-file HTML PWA for tagging and telestrating youth soccer fo
 
 The `CACHE` version string in `sw.js` **must be bumped on every deploy**. The service worker is cache-first, so if the version string is unchanged, phones will serve stale cached copies of the app instead of the new deploy. Bump it whenever `index.html` (or any cached asset) changes.
 
+**Also bump `APP_VERSION` in `index.html`** (near the `$`/`$$` helpers) to the same number — it's shown discreetly next to the logo so the user can confirm which build loaded. Keep `APP_VERSION` and the `sw.js` `CACHE` number in step on every deploy.
+
 ## "Deploy" means (routine)
 
 When the user says **"deploy"**, run this routine:
