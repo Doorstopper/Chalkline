@@ -838,7 +838,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
               <option value="720">720p</option>
               <option value="1080">1080p</option>
               <option value="source" selected>Match source</option>
-              <option value="ffmpeg">⌁ ffmpeg cut (keeps source, no markup)</option>
+              <option value="ffmpeg">ffmpeg command file (advanced, not a video)</option>
             </select>
           </label>
           <label class="field"><span class="eyebrow">Frame rate</span>
@@ -1112,7 +1112,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v167';
+const APP_VERSION = 'v168';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4847,13 +4847,50 @@ function ffmpegCutClip(m){
   download(new Blob([txt],{type:'text/plain'}), 'chalkline-cut-'+safe(m.label)+'-'+stamp()+'.txt');
   toast('ffmpeg cut command saved — run it where the match file is');
 }
+/* Full-res clip with no markup, recorded straight from the video element's own
+   decoded frames (not a canvas). This is the ONE thing that works for H.265,
+   which comes back blank through a canvas — so "Export clip" just works, one
+   click, at the source resolution, with no ffmpeg or terminal step. */
+async function recordClipDirect(m){
+  if(exporting) return toast('Already exporting — give it a moment');
+  if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
+  const stream = vid.captureStream ? vid.captureStream() : (vid.mozCaptureStream && vid.mozCaptureStream());
+  if(!stream) return toast('This browser can’t capture the video directly — use the ffmpeg export');
+  const target = await exportTarget();
+  const types=['video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+  const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
+  const rec=new MediaRecorder(stream, mime?{mimeType:mime, videoBitsPerSecond:12e6}:undefined);
+  const chunks=[]; rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+  const start=clipStart(m), end=clipEnd(m), wasMuted=vid.muted, wasRate=vid.playbackRate;
+  exporting=true; $('#rec').classList.add('on');
+  const status=$('#rec').querySelector('span'); const wasStatus=status&&status.textContent;
+  if(status) status.textContent='Recording full-res clip — leave this tab open';
+  try{
+    vid.muted=false; vid.pause(); vid.currentTime=start; vid.playbackRate=1;
+    await new Promise(r=>vid.addEventListener('seeked',r,{once:true}));
+    rec.start(200);
+    await vid.play().catch(e=>{ throw new Error('playback blocked: '+(e&&e.name)); });
+    await new Promise(res=>{ (function f(){ (vid.currentTime>=end||vid.ended)?res():requestAnimationFrame(f); })(); });
+    vid.pause();
+    await new Promise(r=>setTimeout(r,120));   /* let the last frames flush */
+    rec.stop(); await new Promise(r=>rec.onstop=r);
+    const isMp4=(rec.mimeType||mime||'').includes('mp4');
+    await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
+      safe(m.label)+'-'+Math.round(m.t)+'s.'+(isMp4?'mp4':'webm'));
+    toast('Full-res clip saved'+(isMp4?'':' (WebM)'));
+  }catch(err){ console.error(err); toast('Export failed — try the ffmpeg cut instead'); }
+  finally{ exporting=false; $('#rec').classList.remove('on'); if(status&&wasStatus) status.textContent=wasStatus;
+    vid.muted=wasMuted; vid.playbackRate=wasRate; }
+}
 async function exportClip(){
   if(!curClip) return toast('Pick a clip first');
   if(($('#exportres')||{}).value==='ffmpeg') return ffmpegCutClip(curClip);   /* dropdown set to ffmpeg */
   if(!vid.videoWidth) return toast('Pick a clip first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
-  if(!videoReadable()) return warnBlank();
+  /* H.265 (or anything a canvas can't read) can't burn markups in — record the
+     footage directly instead, so you still get a full-res clip in one click */
+  if(!videoReadable()) return recordClipDirect(curClip);
   const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
