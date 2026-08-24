@@ -3847,7 +3847,8 @@ function pickHandle(p){
      never resizes by accident. Active while PAUSED — i.e. when you're editing —
      so normal playback clicks are unaffected. The clickable area is kept TIGHT to
      the drawn emblem; miss it and a click on the mark's body still moves it. */
-  if(vid.paused && gripsOn) for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
+  if(vid.paused) for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
+    if(!(gripsOn || isSel(s))) continue;   /* grips: all marks when Grips is on, else the selected one */
     const c=shapeCenter(s); if(!c) continue;
     const gr=(s.tool==='ground'?12:11)*hscale;   /* == the drawn grip radius */
     if(Math.hypot((p.x-c.x)*W,(p.y-c.y)*H) < gr) return {s, mode: s.tool==='ground'?'gmove':'move'};
@@ -4027,11 +4028,13 @@ function render(){
   /* Feed the loupe the CLEAN marks (video + telestration) before any editing chrome
      — grip, handles, marquee — so none of that gets magnified inside the glass. */
   if(loupeOn && typeof refreshLoupe==='function') refreshLoupe();
-  /* Move grip on every mark — only when Grips is on AND paused, so you can pause to
-     explain without them. Live canvas only, so exports are clean too. */
-  if(!marksHidden && curClip && vid.paused && gripsOn){
+  /* Move grip: on every mark when Grips is on, and always on the SELECTED mark,
+     so even a tiny mark (a small ground ring) has a clear centre to grab and
+     move without catching a resize handle. Paused-only; live canvas → clean exports. */
+  if(!marksHidden && curClip && vid.paused){
     const W=draw.width,H=draw.height,scale=Math.max(1,W/900);
     shapes.forEach(s=>{
+      if(!(gripsOn || isSel(s))) return;
       const c=shapeCenter(s); if(!c) return;
       const g=(s.tool==='ground'?12:11)*scale, x=c.x*W, y=c.y*H;
       ctx.save();
