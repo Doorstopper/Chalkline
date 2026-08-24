@@ -3854,7 +3854,7 @@ function pickHandle(p){
   if(vid.paused) for(let i=shapes.length-1;i>=0;i--){ const s=shapes[i];
     if(!(gripsOn || isSel(s))) continue;   /* grips: all marks when Grips is on, else the selected one */
     const c=shapeCenter(s); if(!c) continue;
-    const gr=(s.tool==='ground'?12:11)*hscale;   /* == the drawn grip radius */
+    const gr=9*hscale;   /* a touch larger than the 7px drawn grip, so it stays easy to grab */
     if(Math.hypot((p.x-c.x)*W,(p.y-c.y)*H) < gr) return {s, mode: s.tool==='ground'?'gmove':'move'};
   }
   for(let i=shapes.length-1;i>=0;i--){
@@ -4040,14 +4040,14 @@ function render(){
     shapes.forEach(s=>{
       if(!(gripsOn || isSel(s))) return;
       const c=shapeCenter(s); if(!c) return;
-      const g=(s.tool==='ground'?12:11)*scale, x=c.x*W, y=c.y*H;
+      const g=7*scale, x=c.x*W, y=c.y*H;
       ctx.save();
-      ctx.shadowColor='rgba(0,0,0,.7)'; ctx.shadowBlur=4*scale;   /* lift it off busy footage */
+      ctx.shadowColor='rgba(0,0,0,.6)'; ctx.shadowBlur=3*scale;   /* lift it off busy footage */
       ctx.beginPath(); ctx.arc(x,y,g,0,7);
-      ctx.fillStyle='rgba(6,12,9,.78)'; ctx.fill();
+      ctx.fillStyle='rgba(6,12,9,.28)'; ctx.fill();               /* faint → the player shows through */
       ctx.shadowBlur=0;
-      ctx.lineWidth=2.4*scale; ctx.strokeStyle='rgba(255,255,255,.98)'; ctx.stroke();
-      ctx.lineWidth=1.9*scale; const a=g*0.58;   /* move crosshair */
+      ctx.lineWidth=1.7*scale; ctx.strokeStyle='rgba(255,255,255,.95)'; ctx.stroke();
+      ctx.lineWidth=1.4*scale; const a=g*0.52;   /* small move crosshair */
       ctx.beginPath(); ctx.moveTo(x-a,y); ctx.lineTo(x+a,y); ctx.moveTo(x,y-a); ctx.lineTo(x,y+a); ctx.stroke();
       ctx.restore();
     });
