@@ -2596,7 +2596,11 @@ function moveMarkDrag(e){
   const ptrT=trimT0 + Math.max(0,Math.min(r.width,e.clientX-r.left))/r.width*trimSpan;
   const s=clipStart(curClip), e2=clipEnd(curClip), snap=v=>Math.round(v*20)/20, shs=markDrag.shapes;
   if(markDrag.mode==='move'){
-    const nt=Math.max(s, Math.min(e2-0.05, snap(ptrT-markDrag.grabDT)));
+    let nt=Math.max(s, Math.min(e2-0.05, snap(ptrT-markDrag.grabDT)));
+    /* snap the moment onto a nearby freeze point so the markup lines up with the
+       freeze that will show it (set its linger to "Freeze" for appear-on-freeze) */
+    const snapWin=Math.max(0.25, trimSpan*0.02);
+    for(const f of freezePts(curClip)){ if(Math.abs(nt-f.at)<snapWin){ nt=f.at; break; } }
     shs.forEach(x=>x.t=nt); markDrag.band._t=nt;
   } else {
     const t0=shs[0].t; let dur=snap(ptrT-t0);
