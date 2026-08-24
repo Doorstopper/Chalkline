@@ -1111,7 +1111,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v164';
+const APP_VERSION = 'v165';
 { const av=$('#appver'); if(av) av.textContent=APP_VERSION; }
 
 const COLORS = {
@@ -4033,7 +4033,11 @@ function render(){
   const burnAll = $('#burnmode') && $('#burnmode').value==='all';
   const hold = +$('#hold').value||0, now = vid.currentTime;
   const vis = s => shapeVisibleAt(s, now, hold, burnAll);
-  const shapes = (!curClip || marksHidden) ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
+  /* a clip's marks belong to its own window — once you play past the clip (e.g.
+     Play on, into untagged footage) they switch off instead of a "stay on" mark
+     lingering forever */
+  const inClipWindow = !!curClip && vid.duration && now <= clipEnd(curClip)+0.3;
+  const shapes = (!curClip || marksHidden || !inClipWindow) ? [] : curClip.shapes.filter(s => s!==editingShape && vis(s));
   shapes.forEach(s=> s._alpha = shapeAlphaAt(s, now, hold, burnAll));   /* per-mark fade */
   /* live preview: the shape being dragged, or the Connect line in progress (with a
      rubber-band segment out to the cursor) */
