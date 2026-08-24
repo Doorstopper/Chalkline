@@ -320,6 +320,11 @@ button{cursor:pointer;border:none;background:none}
 .tnum::placeholder{letter-spacing:0}
 .tnum::-webkit-inner-spin-button,.tnum::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .tnum:focus{outline:1px solid #FFB454;border-color:#FFB454}
+/* the Auto-freeze hold input, sitting beside the Auto-freeze toggle */
+.holdfield{display:inline-flex;align-items:center;gap:5px;font-family:var(--mono);font-size:9px;letter-spacing:.07em;text-transform:uppercase;color:var(--chalk-dim)}
+.holdfield input{width:42px;border:1px solid var(--line);border-radius:var(--r);padding:6px 3px;background:var(--turf);
+  font-family:var(--mono);font-size:11px;color:var(--chalk);text-align:center;min-width:0;appearance:textfield;-moz-appearance:textfield}
+.holdfield input::-webkit-inner-spin-button,.holdfield input::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .railhover{position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.5);pointer-events:none;display:none}
 .railtip{position:absolute;top:3px;transform:translateX(-50%);background:rgba(12,23,17,.94);color:#EEF3EC;
   border:1px solid var(--line);padding:1px 6px;border-radius:4px;font:600 11px/1.5 "IBM Plex Mono",monospace;
@@ -649,6 +654,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <button class="tbtn" id="resumebtn" title="Jump to your ★ spot and keep watching from there" disabled>⏵ Resume</button>
             <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
             <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Auto-freeze</button>
+            <label class="holdfield" title="Auto-freeze hold — seconds to pause on each marked frame (also the default time a markup stays on)"><span>hold</span><input type="number" id="hold" value="3" min="0" max="10" step="1"></label>
             </div>
           </div>
           <!-- Slow-mo: mark sections of the clip to play slow -->
@@ -822,12 +828,6 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="hint">Drops this text onto the clip as a movable text box (same as drawing a Text mark, but typed here). Drag to reposition, double-click on the clip to edit. Apply again to update it.</div>
 
         <div class="prompt" id="askprompt">Pick a clip to get a question to ask.</div>
-
-        <div class="sep"></div>
-
-        <label class="field"><span class="eyebrow">Freeze hold (seconds)</span>
-          <input type="number" id="hold" value="3" min="0" max="10" step="1">
-        </label>
 
         <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Export video</div>
@@ -1111,7 +1111,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v163';
+const APP_VERSION = 'v164';
 { const av=$('#appver'); if(av) av.textContent=APP_VERSION; }
 
 const COLORS = {
