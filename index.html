@@ -724,6 +724,10 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <button class="tbtn" id="planebtn" title="Tilt a selected curved arrow into a 3D plane — going away, coming toward you, or flat">◈ Plane</button>
         <button class="tbtn" id="undomarks">Undo</button>
         <button class="tbtn" id="clearbtn">Clear</button>
+        <select class="tbtn" id="burnmode" title="How long markups show by default: only on the freeze frame, or the whole clip">
+          <option value="freeze">Shows: on freeze</option>
+          <option value="all">Shows: whole clip</option>
+        </select>
       </div>
       <div class="scroll tools">
         <div class="toolgrid" id="toolgrid"></div>
@@ -820,12 +824,6 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
         <div class="sep"></div>
 
-        <label class="field"><span class="eyebrow">Markup shows</span>
-          <select id="burnmode">
-            <option value="freeze">Freeze frame only</option>
-            <option value="all">Whole clip</option>
-          </select>
-        </label>
         <label class="field"><span class="eyebrow">Freeze hold (seconds)</span>
           <input type="number" id="hold" value="3" min="0" max="10" step="1">
         </label>
@@ -2499,11 +2497,11 @@ function drawTrim(){
 /* Show the markups on the same strip as the slow-mo/freeze marks, and let you
    reposition them (drag the bar) and change how long each shows (drag its right
    edge). A "beat" is every shape sharing a moment; they move/resize together. */
-function markShapes(){ return (curClip && curClip.shapes || []).filter(x=>x.t!=null && x.tool!=='ground'); }
+function markShapes(){ return (curClip && curClip.shapes || []).filter(x=>x.t!=null); }
 function beatInfo(t){
   const all=markShapes(), shs=all.filter(x=>Math.abs(x.t-t)<1e-6);
   const e=clipEnd(curClip), hold=+$('#hold').value||0;
-  const keep=shs.some(x=>x.keep);
+  const keep=shs.some(x=>x.keep || (x.tool==='ground' && x.linger==null));   /* a default ring stays on the whole clip */
   let d=0; shs.forEach(x=>{ const L=x.linger; const dd=(L>0)?L:(L===0?0.15:hold); if(dd>d) d=dd; });
   return { shs, keep, dur: keep ? (e-t) : Math.max(d,0.15), col:(COLORS[(shs[0]||{}).color]||COLORS.ball).hex };
 }
@@ -2601,7 +2599,8 @@ function moveMarkDrag(e){
        freeze that will show it (set its linger to "Freeze" for appear-on-freeze) */
     const snapWin=Math.max(0.25, trimSpan*0.02);
     for(const f of freezePts(curClip)){ if(Math.abs(nt-f.at)<snapWin){ nt=f.at; break; } }
-    shs.forEach(x=>x.t=nt); markDrag.band._t=nt;
+    shs.forEach(x=>{ if(x.tool==='ground' && x.kf){ const dd=nt-x.t; x.kf.forEach(k=>k.t+=dd); } x.t=nt; });
+    markDrag.band._t=nt;
   } else {
     const t0=shs[0].t; let dur=snap(ptrT-t0);
     if(dur >= (e2-t0)-0.1){ shs.forEach(x=>{ x.keep=1; delete x.linger; }); }
@@ -3331,7 +3330,10 @@ function freezeStops(m, start, end, globalHold){
 /* older clips stored one freezeAt for the whole mark — give each shape a beat time */
 function migrateMark(m){
   const dflt = (m.freezeAt!=null) ? m.freezeAt : m.t;
-  if(m.shapes) m.shapes.forEach(s=>{ if(s.t==null) s.t=dflt; });
+  if(m.shapes) m.shapes.forEach(s=>{
+    if(s.tool==='ground' && s.kf && s.kf.length && s.t==null) s.t=s.kf[0].t;   /* ring's appear time */
+    if(s.t==null) s.t=dflt;
+  });
   delete m.freezeAt;
   /* older / imported clips can arrive without a trim window; without pre/post the
      Before/After boxes render blank and the −/+ nudge produces NaN. Backfill from
@@ -3571,7 +3573,7 @@ $('#planebtn').addEventListener('click',()=>{
    empty = default (the global freeze hold). Applies to the selected mark(s). */
 function setLinger(v){
   if(!curClip) return;
-  const marks=selection.filter(s=>s.t!=null && s.tool!=='ground');
+  const marks=selection.filter(s=>s.t!=null);
   if(!marks.length) return toast('Select a mark first');
   marks.forEach(s=>{ delete s.keep; if(v==null) delete s.linger; else s.linger=v; });
   touch(curClip); commit(); syncMarkTiming();
@@ -3579,7 +3581,7 @@ function setLinger(v){
 }
 function setKeep(){
   if(!curClip) return;
-  const marks=selection.filter(s=>s.t!=null && s.tool!=='ground');
+  const marks=selection.filter(s=>s.t!=null);
   if(!marks.length) return toast('Select a mark first');
   marks.forEach(s=>{ delete s.linger; s.keep=1; });
   touch(curClip); commit(); syncMarkTiming();
@@ -3591,7 +3593,7 @@ $('#lingerin').addEventListener('change',()=>{ const raw=$('#lingerin').value.tr
 let _timingSig=null;
 function syncMarkTiming(){
   const inp=$('#lingerin'); if(!inp) return;
-  const marks=selection.filter(s=>s.t!=null && s.tool!=='ground');
+  const marks=selection.filter(s=>s.t!=null);
   const keep = marks.length ? !!marks[0].keep : false;
   const cur = marks.length ? (keep?'k':(marks[0].linger==null?'d':marks[0].linger)) : 'x';
   const sig = marks.length+':'+cur;
@@ -3793,7 +3795,10 @@ async function trackRing(s){
    • linger > 0       → stays that many seconds past the beat, fading the last 0.5s. */
 function shapeAlphaAt(s,t,hold,burnAll){
   if(burnAll) return 1;
-  if(s.tool==='ground'&&s.kf&&s.kf.length) return t>=s.kf[0].t-0.1 ? 1 : 0;
+  /* a ground ring defaults to on-the-whole-clip (from its first follow point),
+     but if you give it a linger/keep it obeys the same timing as any mark — so a
+     circle can be freeze-only too */
+  if(s.tool==='ground'&&s.kf&&s.kf.length && s.linger==null && !s.keep) return t>=s.kf[0].t-0.1 ? 1 : 0;
   if(s.t==null) return 0;
   if(s.keep) return t>=s.t-0.1 ? 1 : 0;   /* stay on: visible from its beat to the end of the clip */
   const L=s.linger;
