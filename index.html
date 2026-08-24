@@ -838,7 +838,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
               <option value="720">720p</option>
               <option value="1080">1080p</option>
               <option value="source" selected>Match source</option>
-              <option value="ffmpeg">ffmpeg command file (advanced, not a video)</option>
+              <option value="ffmpeg">Full-res .bat (double-click — true original quality)</option>
             </select>
           </label>
           <label class="field"><span class="eyebrow">Frame rate</span>
@@ -898,9 +898,11 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="hint" id="reelhint">Plays every clip through once to record it, so it takes about as long as the reel itself.</div>
 
         <div class="sep"></div>
-        <button class="btn" id="exportall">Save session + ffmpeg cuts</button>
-        <button class="btn" id="exportbatch">ffmpeg cuts — each player separately</button>
-        <div class="hint">Writes one cut list per group (Ethan, team, …) plus its join command, straight into your export folder. Run them where the match file is; each builds its own reel losslessly, no real-time recording.</div>
+        <div class="eyebrow" style="margin-bottom:5px">Full-res clips (true original quality)</div>
+        <button class="btn primary" id="exportall">Make all clips — double-click .bat</button>
+        <div class="hint" id="batinfo"><b>Windows, ultra-simple:</b> saves a <code>.bat</code> (plus a session backup). Put the <code>.bat</code> in the <b>same folder as your match video</b> and double-click it — it cuts every clip at full source resolution, visually lossless, and stitches a reel. First run installs ffmpeg for you (via winget); after that it just runs. No terminal.</div>
+        <button class="btn" id="exportbatch">Cut list per player (advanced)</button>
+        <div class="hint">Writes one plain cut list per group (Ethan, team, …) plus its join command. For running by hand where the match file is.</div>
 
         <div class="hint">
           <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>1</kbd>–<kbd>8</kbd> tools ·
@@ -1112,7 +1114,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v168';
+const APP_VERSION = 'v169';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4833,19 +4835,40 @@ $('#snapstill').addEventListener('click', async ()=>{
 });
 
 $('#exportclip').addEventListener('click', exportClip);
-/* One ffmpeg cut command for a single clip, at the source's own resolution (no
-   scale filter). The browser can't run ffmpeg, so this saves the command to run
-   where the match file is — clean H.264, no real-time recording, markup not
-   burned in. */
+/* Build a double-click Windows .bat that finds ffmpeg (installing it once via
+   winget if it's missing), then runs the given cut command lines. The user drops
+   it in the match-file folder and double-clicks — no terminal, no manual install.
+   Cuts are re-encoded at the source resolution, visually lossless (crf 18),
+   frame-accurate; markup isn't burned in. */
+function ffmpegBat(cutLines){
+  const head=[
+    '@echo off','setlocal enabledelayedexpansion','cd /d "%~dp0"',
+    'REM  >>> Put this file in the SAME folder as your match video, then double-click it. <<<',
+    'title Chalkline - making clips',
+    'set "FF="',
+    'where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
+    'if not defined FF if exist "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe" set "FF=%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe"',
+    'if not defined FF (',
+    '  echo Installing ffmpeg once, via Windows winget - this can take a minute...',
+    '  winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements',
+    '  where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
+    '  if not defined FF if exist "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe" set "FF=%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe"',
+    ')',
+    'if not defined FF ( echo. & echo Could not find or install ffmpeg. Install it once from https://ffmpeg.org then run this again. & echo. & pause & exit /b 1 )',
+    ''
+  ];
+  return head.concat(cutLines, ['','echo.','echo Done - your clip(s) are in this folder.','pause']).join('\r\n');
+}
 function ffmpegCutClip(m){
   if(!m) return toast('Pick a clip first');
   const name=S.videoName||'match.mp4';
   const s=clipStart(m), d=(clipEnd(m)-s).toFixed(1), out=safe(m.label)+'-'+Math.round(m.t)+'s.mp4';
-  let txt='# Chalkline ffmpeg cut — run this where the match file is. Needs ffmpeg.\n';
-  txt+='# Clean H.264 at the source resolution; no browser recording, no markup.\n\n';
-  txt+=`ffmpeg -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 20 -preset veryfast -c:a aac -b:a 128k "${out}"\n`;
-  download(new Blob([txt],{type:'text/plain'}), 'chalkline-cut-'+safe(m.label)+'-'+stamp()+'.txt');
-  toast('ffmpeg cut command saved — run it where the match file is');
+  const lines=[
+    'echo Making "'+out+'" ...',
+    `"%FF%" -y -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "${out}"`
+  ];
+  download(new Blob([ffmpegBat(lines)],{type:'application/octet-stream'}), 'make-'+safe(m.label)+'.bat');
+  toast('Saved make-'+safe(m.label)+'.bat — drop it in your match folder and double-click');
 }
 /* Full-res clip with no markup, recorded straight from the video element's own
    decoded frames (not a canvas). This is the ONE thing that works for H.265,
@@ -4859,7 +4882,10 @@ async function recordClipDirect(m){
   const target = await exportTarget();
   const types=['video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
   const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
-  const rec=new MediaRecorder(stream, mime?{mimeType:mime, videoBitsPerSecond:12e6}:undefined);
+  /* scale the bitrate to the source resolution so the re-encode is visually
+     lossless at full res (≈0.3 bits/pixel, 16–100 Mbps) */
+  const br=Math.min(100e6, Math.max(16e6, Math.round((vid.videoWidth||1920)*(vid.videoHeight||1080)*30*0.3)));
+  const rec=new MediaRecorder(stream, mime?{mimeType:mime, videoBitsPerSecond:br}:undefined);
   const chunks=[]; rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
   const start=clipStart(m), end=clipEnd(m), wasMuted=vid.muted, wasRate=vid.playbackRate;
   exporting=true; $('#rec').classList.add('on');
@@ -5126,27 +5152,21 @@ $('#exportall').addEventListener('click',()=>{
   const sorted=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
   if(!sorted.length) return toast(scope?`No ${scope} clips to export`:'No clips to export');
   const reelName = 'chalkline-reel'+(scope?'-'+safe(scope):'')+'.mp4';
-  let txt = '# Chalkline cut list — '+stamp()+(scope?' — '+scope:'')+'\n# source: '+name+'\n';
-  txt += '# Run these where the match file is. Needs ffmpeg.\n\n';
+  const lines=[];
+  const files=[];
   sorted.forEach((m,i)=>{
     const s=clipStart(m), d=(clipEnd(m)-s).toFixed(1);
-    const cap=(m.caption||'').replace(/\s+/g,' ').trim();
-    txt += `# ${i+1}. ${m.label}${cap?' — '+cap:''}\n`;
-    txt += `ffmpeg -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 23 -preset veryfast `
-        +  `-vf "scale=1280:-2" -c:a aac -b:a 128k "${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4"\n\n`;
+    const fn=`${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4`; files.push(fn);
+    lines.push('echo ['+(i+1)+'/'+sorted.length+'] '+fn);
+    lines.push(`"%FF%" -y -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "${fn}"`);
   });
-
-  txt += '\n# ---- Join them all into one reel ----\n';
-  txt += '# Save the list below as reel.txt in the same folder:\n#\n';
-  sorted.forEach((m,i)=>{ txt += `#   file '${String(i+1).padStart(2,'0')}_${safe(m.label)}.mp4'\n`; });
-  txt += '#\n# Then run:\n';
-  txt += 'ffmpeg -f concat -safe 0 -i reel.txt -c copy '+reelName+'\n\n';
-  txt += '# Windows one-liner that writes the list for you, from the same folder:\n';
-  txt += '#   (for %i in (*.mp4) do @echo file \'%i\') > reel.txt\n';
-
-  download(new Blob([txt],{type:'text/plain'}), 'chalkline-cuts-'+(scope?safe(scope)+'-':'')+stamp()+'.txt');
+  /* stitch them into one reel losslessly at the end */
+  lines.push('echo Joining into '+reelName+' ...');
+  lines.push('(for %%i in ('+files.map(f=>'"'+f+'"').join(' ')+') do @echo file \'%%i\') > reel.txt');
+  lines.push('"%FF%" -y -f concat -safe 0 -i reel.txt -c copy "'+reelName+'"');
+  download(new Blob([ffmpegBat(lines)],{type:'application/octet-stream'}), 'make-all-clips'+(scope?'-'+safe(scope):'')+'.bat');
   download(new Blob([JSON.stringify({...S},null,2)],{type:'application/json'}), 'chalkline-session-'+stamp()+'.json');
-  toast('Cut list and session saved');
+  toast('Saved make-all-clips.bat — drop it in your match folder and double-click');
 });
 
 /* one group per player, plus a "Team" group for clips with no player. Only
