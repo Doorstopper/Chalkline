@@ -1117,7 +1117,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v174';
+const APP_VERSION = 'v175';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2145,6 +2145,7 @@ const RATES=[0.1,0.25,0.5,1,1.5,2,3];
 function setRate(rate){
   userRate=rate; vid.playbackRate=rate;
   $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', Math.abs(+x.dataset.rate-rate)<1e-9));
+  if(typeof updateSlowSpeedBtns==='function') updateSlowSpeedBtns();   /* keep the Slow-mo group's toggle in step */
 }
 $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
   const r=+b.dataset.rate;
@@ -2727,8 +2728,11 @@ function positionSlowBand(idx){                     /* live reposition of one ba
   if(toH) toH.style.left=pos(b)+'%';
 }
 function updateSlowSpeedBtns(){
-  const z=zoneUnderHead(); const activeRate = z ? z.rate : slowRateDefault;
-  $$('[data-slow]').forEach(x=>x.setAttribute('aria-pressed', Math.abs(+x.dataset.slow-activeRate)<1e-9));
+  const z=zoneUnderHead();
+  /* highlight the LIVE slow speed so the buttons read as an on/off toggle; when
+     the video's at normal speed, show the speed of the section under the playhead */
+  const activeRate = (userRate<1) ? userRate : (z ? z.rate : null);
+  $$('[data-slow]').forEach(x=>x.setAttribute('aria-pressed', activeRate!=null && Math.abs(+x.dataset.slow-activeRate)<1e-9));
 }
 function updateSlowCaption(){
   const cap=$('#slowcap'); if(!cap) return;
@@ -2861,9 +2865,10 @@ $('#slowclear').addEventListener('click',()=>{
   slowSig=''; reapplyRateNow(); touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
 });
 $$('[data-slow]').forEach(b=>b.addEventListener('click',()=>{
-  const r=+b.dataset.slow; slowRateDefault=r;
-  const z=zoneUnderHead();   /* park the playhead over a section to change just that one */
-  if(z){ z.rate=r; slowSig=''; touch(curClip); save(); }
+  const r=+b.dataset.slow;
+  slowRateDefault=r;                                    /* the speed a new "Slow from → to here" section will use */
+  const z=zoneUnderHead(); if(z){ z.rate=r; slowSig=''; touch(curClip); save(); }   /* park on a section to retune it */
+  setRate(userRate===r ? 1 : r);   /* AND play the whole video at this speed now — click the lit one again to stop */
   drawTrim();
 }));
 /* while a clip with slow sections is playing, drop to a section's speed inside it
