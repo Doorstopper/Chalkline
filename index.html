@@ -1117,7 +1117,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v172';
+const APP_VERSION = 'v173';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5540,8 +5540,13 @@ if('serviceWorker' in navigator && location.protocol.startsWith('http')){
   window.addEventListener('load', async ()=>{
     try{
       const reg = await navigator.serviceWorker.register('./sw.js', {updateViaCache:'none'});
-      reg.update().catch(()=>{});
-      setInterval(()=>reg.update().catch(()=>{}), 60*60*1000);
+      const check=()=>reg.update().catch(()=>{});
+      check();
+      setInterval(check, 15*60*1000);                                   /* and every 15 min */
+      /* check the moment you come back to the app, so a deploy lands right away
+         instead of waiting for a full reopen or the timer */
+      document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') check(); });
+      window.addEventListener('focus', check);
     }catch(e){ console.warn('SW:',e); }
   });
 }
