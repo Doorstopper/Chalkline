@@ -908,7 +908,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="hint">Writes one plain cut list per group (Ethan, team, …) plus its join command. For running by hand where the match file is.</div>
 
         <div class="hint">
-          <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>1</kbd>–<kbd>8</kbd> tools ·
+          <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>,</kbd><kbd>.</kbd> slower/faster · <kbd>1</kbd>–<kbd>8</kbd> tools ·
           <kbd>⌘Z</kbd> undo · <kbd>[</kbd><kbd>]</kbd> prev/next clip
         </div>
       </div>
@@ -1117,7 +1117,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v173';
+const APP_VERSION = 'v174';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2138,16 +2138,26 @@ $$('[data-skip]').forEach(b=>b.addEventListener('click',()=>{
   vid.currentTime = Math.max(0, Math.min(vid.duration, vid.currentTime + (+b.dataset.skip)));
   render();
 }));
-let userRate=1;   /* the whole-video speed chosen from the rate buttons; a clip's
-                     slow-mo section overrides this only inside its own range */
+let userRate=1;   /* the whole-video speed chosen from the rate buttons; works
+                     whether or not a clip is selected. A clip's slow-mo section
+                     overrides this only inside its own range. */
+const RATES=[0.1,0.25,0.5,1,1.5,2,3];
+function setRate(rate){
+  userRate=rate; vid.playbackRate=rate;
+  $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', Math.abs(+x.dataset.rate-rate)<1e-9));
+}
 $$('[data-rate]').forEach(b=>b.addEventListener('click',()=>{
   const r=+b.dataset.rate;
-  /* clicking the already-active slow-mo toggles back to 1x */
-  const rate = (userRate===r && r!==1) ? 1 : r;
-  userRate = rate;
-  vid.playbackRate = rate;
-  $$('[data-rate]').forEach(x=>x.setAttribute('aria-pressed', +x.dataset.rate===rate));
+  setRate((userRate===r && r!==1) ? 1 : r);   /* click the active slow-mo again → back to 1× */
 }));
+/* step through the speeds — used by the , and . keys so you can slow the game
+   down while just watching, no clip needed */
+function stepRate(dir){
+  let i=0; for(let k=0;k<RATES.length;k++) if(Math.abs(RATES[k]-userRate)<Math.abs(RATES[i]-userRate)) i=k;
+  const ni=Math.max(0, Math.min(RATES.length-1, i+dir));
+  setRate(RATES[ni]);
+  toast('Speed '+RATES[ni]+'×');
+}
 $('#loopbtn').addEventListener('click',()=>{
   loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
 });
@@ -5291,6 +5301,9 @@ document.addEventListener('keydown',e=>{
   /* Any other Ctrl/⌘ combo is a browser/OS shortcut (reload, new tab, print, tab
      switching…) — let it through, don't hijack it with a tool or tag key. */
   if(mod) return;
+  /* , slows down · . speeds up — global speed while watching, no clip needed */
+  if(e.key===','||e.key==='<'){ e.preventDefault(); stepRate(-1); return; }
+  if(e.key==='.'||e.key==='>'){ e.preventDefault(); stepRate(1);  return; }
   /* Delete/Backspace removes the selected marks (those showing white handles) */
   if((e.key==='Delete'||e.key==='Backspace') && selection.length && curClip){
     e.preventDefault();
