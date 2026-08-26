@@ -1117,7 +1117,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v177';
+const APP_VERSION = 'v178';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2116,6 +2116,16 @@ function onFSChange(){
 document.addEventListener('fullscreenchange', onFSChange);
 document.addEventListener('webkitfullscreenchange', onFSChange);
 document.addEventListener('mousemove', ()=>{ if(immersive) immShow(); });
+/* In full screen, a click anywhere on the picture (video or the black bars) hides
+   the control panel straight away — a quicker way off than the auto-hide, which
+   still applies. Capture phase so it beats the canvas draw handler; clicking the
+   transport, a corner button, or a markup is left alone. */
+stageEl.addEventListener('pointerdown', e=>{
+  if(!immersive || stageEl.classList.contains('hideui')) return;
+  if(e.target.closest('.transport') || e.target.closest('.fscorner')) return;   /* using the controls */
+  if(e.target===draw && curClip && pickHandle(pt(e))) return;                   /* grabbing a markup */
+  clearTimeout(immIdleT); stageEl.classList.add('hideui'); e.stopPropagation();
+}, true);
 $('#fsbtn').addEventListener('click', toggleImmersive);
 /* re-arm the live freeze whenever we move back before the marked frame */
 vid.addEventListener('seeked',()=>{ liveFrozeAt=null; if(!curClip) return;
@@ -3227,13 +3237,6 @@ draw.addEventListener('pointerdown', e=>{
   if(loupeOn){ draw.setPointerCapture(e.pointerId); moveLoupe(e); return; }
   if(canGrabPan(pt(e))){
     panning={x:e.clientX,y:e.clientY,sx:e.clientX,sy:e.clientY}; draw.setPointerCapture(e.pointerId); return;
-  }
-  /* full screen: a click on empty video (not a mark) dismisses the button panel
-     straight away — works even with no clip selected (watching the match); the
-     auto-hide still applies */
-  if(immersive && !stageEl.classList.contains('hideui')){
-    const h = curClip ? pickHandle(pt(e)) : null;
-    if(!h){ clearTimeout(immIdleT); stageEl.classList.add('hideui'); return; }
   }
   if(!curClip) return toast('Pick a clip first');
   /* an open inline text box commits on any click elsewhere (a canvas can't blur
