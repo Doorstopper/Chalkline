@@ -1047,8 +1047,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
   <div class="dlgbody" style="padding:14px 16px;line-height:1.55" id="switchtext"></div>
   <div class="dlgfoot" style="flex-wrap:wrap;gap:8px">
     <button class="btn small" id="switchcancel">Cancel</button>
-    <button class="btn small danger" id="switchdiscard">Open without saving</button>
-    <button class="btn small primary" id="switchsave">Save clips, then open</button>
+    <button class="btn small danger" id="switchdiscard">Open fresh (no clips)</button>
+    <button class="btn small" id="switchsave">Save a backup, then fresh</button>
+    <button class="btn small primary" id="switchkeep">Keep my clips (same match)</button>
   </div>
 </dialog>
 
@@ -1131,7 +1132,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v182';
+const APP_VERSION = 'v183';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1228,15 +1229,17 @@ function switchBox(text){
     const d=$('#switchdlg');
     $('#switchtext').textContent=text;
     const done=v=>{ d.close(); cleanup(); res(v); };
-    const save=()=>done('save'), discard=()=>done('discard'), cancel=()=>done('cancel');
+    const save=()=>done('save'), discard=()=>done('discard'), cancel=()=>done('cancel'), keep=()=>done('keep');
     function cleanup(){
       $('#switchsave').removeEventListener('click',save);
       $('#switchdiscard').removeEventListener('click',discard);
       $('#switchcancel').removeEventListener('click',cancel);
+      $('#switchkeep').removeEventListener('click',keep);
     }
     $('#switchsave').addEventListener('click',save);
     $('#switchdiscard').addEventListener('click',discard);
     $('#switchcancel').addEventListener('click',cancel);
+    $('#switchkeep').addEventListener('click',keep);
     d.showModal();
   });
 }
@@ -1366,12 +1369,18 @@ async function loadVideo(file){
     } else if(S.marks.length){
       const choice = await switchBox(
         `You have ${S.marks.length} clip${S.marks.length===1?'':'s'} on “${S.videoName}”.\n\n`+
-        `They're remembered for that video and come back whenever you reopen it. `+
-        `Opening “${file.name}” starts it fresh — save a backup file first?`);
+        `If “${file.name}” is a re-encoded copy of the SAME match (e.g. an H.264 copy for exporting), `+
+        `choose “Keep my clips” — they line up because the copy has the same timeline.\n\n`+
+        `If it's a different game, open fresh (save a backup first if you're unsure).`);
       if(choice==='cancel') return;
-      if(choice==='save') saveMarksFile();
-      (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
-      S.marks=[]; curClip=null; renderClips(); drawRail(); save();
+      if(choice==='keep'){
+        /* same match, different file (an H.264 copy): carry every clip straight
+           onto the new file — ok() sets the new name/key, save() re-files them */
+      } else {
+        if(choice==='save') saveMarksFile();
+        (S.tomb=S.tomb||[]).push(...S.marks.map(m=>m.id));
+        S.marks=[]; curClip=null; renderClips(); drawRail(); save();
+      }
     }
   }
   if(vidURL) URL.revokeObjectURL(vidURL);
