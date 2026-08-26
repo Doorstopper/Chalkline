@@ -1119,7 +1119,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v180';
+const APP_VERSION = 'v181';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1649,6 +1649,33 @@ function videoReadable(){
     for(let i=0;i<d.length;i+=4) max=Math.max(max,d[i],d[i+1],d[i+2]);
     return max>=10;
   }catch(e){ return false; }
+}
+/* Some H.265 footage draws fine to a canvas when PAUSED but comes back black
+   during PLAYBACK — the moving frames live on a hardware overlay the canvas
+   can't read. The paused probe above then lies, and the export records black
+   with sound. So before committing to a canvas export we briefly play and probe
+   a real playing frame, then put the playhead/mute/rate back. */
+async function videoReadablePlaying(){
+  if(!vid.videoWidth) return false;
+  if(!videoReadable()) return false;                 /* paused is already black — definitely no */
+  const wasPaused=vid.paused, wasMuted=vid.muted, wasTime=vid.currentTime, wasRate=vid.playbackRate;
+  try{
+    vid.muted=true; vid.playbackRate=1;
+    await vid.play().catch(()=>{});
+    await new Promise(r=>setTimeout(r,220));          /* let a few real playing frames render */
+    const p=document.createElement('canvas'); p.width=48; p.height=27;
+    const pc=p.getContext('2d',{willReadFrequently:true});
+    pc.drawImage(vid,0,0,48,27);
+    const d=pc.getImageData(0,0,48,27).data; let max=0;
+    for(let i=0;i<d.length;i+=4) max=Math.max(max,d[i],d[i+1],d[i+2]);
+    return max>=10;
+  }catch(e){ return false; }
+  finally{
+    try{ vid.pause(); }catch(_){}
+    try{ vid.currentTime=wasTime; }catch(_){}
+    vid.muted=wasMuted; vid.playbackRate=wasRate;
+    if(!wasPaused) vid.play().catch(()=>{});
+  }
 }
 function warnBlank(){
   $('#codecwarn').style.display='flex';
@@ -5029,10 +5056,10 @@ async function exportClip(){
   if(!vid.videoWidth) return toast('Pick a clip first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
-  /* H.265 (or anything a canvas can't read) can't burn markups through a canvas —
-     it comes back black. Record what's actually on screen instead, so the clip
-     exports exactly as seen: the real footage WITH the markups on top. */
-  if(!videoReadable()) return recordClipScreen(curClip);
+  /* H.265 (or anything a canvas can't read DURING PLAYBACK) can't burn markups
+     through a canvas — it comes back black. Record what's actually on screen
+     instead, so the clip exports exactly as seen: footage WITH the markups. */
+  if(!(await videoReadablePlaying())) return recordClipScreen(curClip);
   const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
@@ -5157,7 +5184,7 @@ async function compileReel(){
   if(($('#exportres')||{}).value==='ffmpeg'){ $('#exportall').click(); return; }   /* ffmpeg reel = cut list + join */
   if(!vid.videoWidth) return toast('Load the match first');
   if(exporting) return toast('Already exporting — give it a moment');
-  if(!videoReadable()) return warnBlank();
+  if(!(await videoReadablePlaying())) return warnBlank();
   const reelKind=($('#reelkind')||{}).value||'all';
   let list=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
   if(reelKind!=='all') list=list.filter(m=>m.kind===reelKind);
