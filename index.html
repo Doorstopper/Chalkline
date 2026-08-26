@@ -840,7 +840,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
               <option value="480">480p</option>
               <option value="720">720p</option>
               <option value="1080">1080p</option>
-              <option value="source" selected>Match source</option>
+              <option value="source" selected>Match source — as seen, with markups</option>
+              <option value="direct">Full res, no markups (one click)</option>
               <option value="ffmpeg">Full-res .bat (double-click — true original quality)</option>
             </select>
           </label>
@@ -1117,7 +1118,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v178';
+const APP_VERSION = 'v179';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4955,15 +4956,82 @@ async function recordClipDirect(m){
   finally{ exporting=false; $('#rec').classList.remove('on'); if(status&&wasStatus) status.textContent=wasStatus;
     vid.muted=wasMuted; vid.playbackRate=wasRate; }
 }
+/* "As seen on screen" clip: the only way to burn markups onto H.265 footage,
+   which a canvas can't read (comes back black). We screen-capture this very tab,
+   crop to the video picture, and record it while the clip plays — so the file
+   is exactly what you watched: the real footage WITH the telestration on top.
+   Resolution follows how big the picture is on screen, so maximise the window
+   (or go full screen first) for a sharper file. */
+async function recordClipScreen(m){
+  if(!m) return toast('Pick a clip first');
+  if(exporting) return toast('Already exporting — give it a moment');
+  if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
+  if(!(navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia))
+    return toast('This browser can’t screen-capture — use the ffmpeg export');
+  vid.pause();
+  toast('Choose “This tab” and press Share to record the clip as seen');
+  let dstream;
+  try{ dstream = await navigator.mediaDevices.getDisplayMedia({video:{frameRate:30}, audio:false, preferCurrentTab:true}); }
+  catch(e){ if(e && e.name==='NotAllowedError') return; return toast('Screen share was cancelled'); }
+  const target = await exportTarget();
+  const tv=document.createElement('video'); tv.srcObject=dstream; tv.muted=true; tv.playsInline=true;
+  let raf=0; const chunks=[];
+  const start=clipStart(m), end=clipEnd(m), wasMuted=vid.muted, wasRate=vid.playbackRate;
+  let rec=null, outStream=null;
+  const cleanup=()=>{ cancelAnimationFrame(raf); try{ dstream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    try{ outStream&&outStream.getTracks().forEach(t=>t.stop()); }catch(_){}
+    exporting=false; vid.muted=wasMuted; vid.playbackRate=wasRate; };
+  try{
+    try{ await tv.play(); }catch(_){}
+    await new Promise(r=>setTimeout(r,200));                 /* let the capture settle */
+    const bw=tv.videoWidth||window.innerWidth, bh=tv.videoHeight||window.innerHeight;
+    const sx=bw/window.innerWidth, sy=bh/window.innerHeight; /* tab capture maps 1:1 to the viewport */
+    const r=vid.getBoundingClientRect();
+    const cx=Math.max(0,Math.round(r.left*sx)), cy=Math.max(0,Math.round(r.top*sy));
+    let cw=Math.max(2,Math.round(r.width*sx)), ch=Math.max(2,Math.round(r.height*sy));
+    cw-=cw%2; ch-=ch%2;                                      /* even dims keep encoders happy */
+    const cv=document.createElement('canvas'); cv.width=cw; cv.height=ch; const c=cv.getContext('2d');
+    /* sanity: one probe frame — if the crop is black, screen capture is being
+       blocked on this GPU and we should not save a black clip */
+    try{ c.drawImage(tv, cx,cy,cw,ch, 0,0,cw,ch); }catch(_){}
+    if(canvasBlank(c,cw,ch)){ toast('Screen capture came back blank on this GPU — convert to H.264, or use the ffmpeg export'); return cleanup(); }
+    outStream=cv.captureStream(30);
+    try{ const vs=vid.captureStream?vid.captureStream():(vid.mozCaptureStream&&vid.mozCaptureStream());
+         const at=vs&&vs.getAudioTracks()[0]; if(at) outStream.addTrack(at); }catch(_){}
+    const types=['video/mp4','video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm'];
+    const mime=types.find(t=>MediaRecorder.isTypeSupported(t))||'';
+    const br=Math.min(40e6, Math.max(8e6, Math.round(cw*ch*30*0.3)));
+    rec=new MediaRecorder(outStream, mime?{mimeType:mime, videoBitsPerSecond:br}:undefined);
+    rec.ondataavailable=e=>e.data.size&&chunks.push(e.data);
+    exporting=true;
+    selection=[]; vid.muted=false; vid.playbackRate=1; vid.currentTime=start;
+    await new Promise(r2=>vid.addEventListener('seeked',r2,{once:true}));
+    render();                                                /* draw markups for the first frame */
+    rec.start(200);
+    await vid.play().catch(e=>{ throw new Error('playback blocked: '+(e&&e.name)); });
+    const grab=()=>{ try{ c.drawImage(tv, cx,cy,cw,ch, 0,0,cw,ch); }catch(_){} paintCaption(c,cw,ch,m.caption); };
+    await new Promise(res=>{ (function f(){ grab(); (vid.currentTime>=end||vid.ended)?res():(raf=requestAnimationFrame(f)); })(); });
+    vid.pause();
+    await new Promise(r2=>setTimeout(r2,150));               /* flush the tail */
+    rec.stop(); await new Promise(r2=>rec.onstop=r2);
+    const isMp4=(rec.mimeType||mime||'').includes('mp4');
+    await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
+      safe(m.label)+'-'+Math.round(m.t)+'s.'+(isMp4?'mp4':'webm'));
+    toast('Clip saved — as seen, with markups'+(isMp4?'':' (WebM)'));
+  }catch(err){ console.error('screen clip:',err); toast('Export failed — try the ffmpeg cut instead'); }
+  finally{ cleanup(); }
+}
 async function exportClip(){
   if(!curClip) return toast('Pick a clip first');
   if(($('#exportres')||{}).value==='ffmpeg') return ffmpegCutClip(curClip);   /* dropdown set to ffmpeg */
+  if(($('#exportres')||{}).value==='direct') return recordClipDirect(curClip); /* clean full-res, no markups */
   if(!vid.videoWidth) return toast('Pick a clip first');
   if(exporting) return toast('Already exporting — give it a moment');
   if(typeof MediaRecorder==='undefined') return toast('This browser cannot record — use the ffmpeg export');
-  /* H.265 (or anything a canvas can't read) can't burn markups in — record the
-     footage directly instead, so you still get a full-res clip in one click */
-  if(!videoReadable()) return recordClipDirect(curClip);
+  /* H.265 (or anything a canvas can't read) can't burn markups through a canvas —
+     it comes back black. Record what's actually on screen instead, so the clip
+     exports exactly as seen: the real footage WITH the markups on top. */
+  if(!videoReadable()) return recordClipScreen(curClip);
   const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
