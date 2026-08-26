@@ -896,7 +896,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card (3s) before each clip
+          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card before each clip, held for
+          <input type="number" id="titlesecs" value="5" min="1" max="15" step="1" style="width:52px"> s
         </label>
         <button class="btn" id="reelbtn">Compile clips into one video</button>
         <div class="hint" id="reelhint">Plays every clip through once to record it, so it takes about as long as the reel itself.</div>
@@ -1118,7 +1119,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v179';
+const APP_VERSION = 'v180';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5167,7 +5168,8 @@ async function compileReel(){
   const total = list.reduce((n,m)=>n+(clipEnd(m)-clipStart(m)),0);
   const cards = $('#titlecards').checked;
   const hold  = +$('#hold').value||0;
-  const mins  = Math.ceil((total + list.length*(hold+(cards?2.5:0)))/60);
+  const cardSecs = Math.max(1,+$('#titlesecs').value||5);
+  const mins  = Math.ceil((total + list.length*(hold+(cards?cardSecs:0)))/60);
   if(!await confirmBox(
       `${list.length} ${scopeName?scopeName+' ':''}clip${list.length===1?'':'s'}, roughly ${mins} minute${mins===1?'':'s'} of video. `+
       `It records in real time, so it will take about that long and the tab has to stay open and visible. Start now?`))
@@ -5233,7 +5235,7 @@ async function compileReel(){
           (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); }); vid.pause(); };
 
       await seekTo(mStart);
-      if(cards) await runFor(3000, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
+      if(cards) await runFor((Math.max(1,+$('#titlesecs').value||5))*1000, ()=>paintTitleCard(c,cv.width,cv.height,m,i,list.length));
 
       const stops=freezeStops(m, mStart, mEnd, hold);
       for(const st of stops){ await playTo(st.t); await seekTo(st.t); await holdFor(st.hold); }
@@ -5616,6 +5618,7 @@ function save(quiet){
     Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,aeV:1,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,videoKey:S.videoKey,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
+                   titleSecs:($('#titlesecs')||{}).value,
                    fps});
     saveVidLib();                                  /* also remember this game's clips against its video */
     if(pendingLoud){ pendingLoud=false; autoPush(); }
@@ -5679,6 +5682,7 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     $('#defplayer').value = S.defaultPlayer;
     if(d.exportRes) $('#exportres').value = d.exportRes;
     if(d.exportFpsV) $('#exportfps').value = d.exportFpsV;
+    if(d.titleSecs && $('#titlesecs')) $('#titlesecs').value = d.titleSecs;
     fps = d.fps||25;
     $('#offset').value=S.offset; $('#fpsin').value=fps;
     if(S.marks.length) toast(S.marks.length+' marks restored from last session');
