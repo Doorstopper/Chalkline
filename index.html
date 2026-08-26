@@ -573,8 +573,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div id="rec"><i></i><span>Recording clip — leave this tab open</span></div>
         <div id="codecwarn">
           <div>
-            <b>The picture is blank.</b> <span id="codecname"></span> opened, but this browser can't decode the video track — almost always H.265/HEVC.
-            <code>ffmpeg -i input.mp4 -c:v libx264 -crf 20 -c:a aac out.mp4</code>
+            <b>Exports come out black.</b> <span id="codecname"></span> plays, but it's <b>H.265/HEVC</b> and this PC hides it from the browser, so canvas exports record black.
+            Fix it once: in the export panel use <b>“Make a playable H.264 copy — double-click .bat”</b>, then load that copy. Every export then works with your markups.
           </div>
           <button class="btn small" id="codecdismiss">Dismiss</button>
         </div>
@@ -887,6 +887,18 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="hint" id="snaphint">Use this if Export still is blank (H.265 footage). It grabs what’s on screen, so you’ll be asked to share this tab once. Saves to the same place; lower resolution than converting to H.264.</div>
 
         <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">⚑ Exports coming out black? Do this once</div>
+        <label class="field" style="margin-bottom:6px"><span class="eyebrow">Copy quality</span>
+          <select id="h264res">
+            <option value="1080" selected>1080p — recommended</option>
+            <option value="720">720p — smaller &amp; faster</option>
+            <option value="source">Match source — full res, slowest</option>
+          </select>
+        </label>
+        <button class="btn primary" id="makeh264">Make a playable H.264 copy — double-click .bat</button>
+        <div class="hint" id="h264hint">Your footage is <b>H.265</b>, which this PC hides from the browser — so canvas exports record black. This saves a <code>.bat</code>: put it in your <b>match folder</b>, double-click (first run installs ffmpeg via winget), and it writes an <b>H.264 copy</b> beside your match. <b>Load that copy</b> into Chalkline and every export — reel, clips, stills — works with your markups burned in. Your tags stay put: the copy keeps the exact same timeline.</div>
+
+        <div class="sep"></div>
         <div class="eyebrow">Whole game reel</div>
         <label class="field"><span class="eyebrow">Reel includes</span>
           <select id="reelkind">
@@ -1119,7 +1131,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v181';
+const APP_VERSION = 'v182';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4935,6 +4947,26 @@ function ffmpegBat(cutLines){
   ];
   return head.concat(cutLines, ['','echo.','echo Done - your clip(s) are in this folder.','pause']).join('\r\n');
 }
+/* Make a whole-match H.264 copy the browser CAN read. For footage (H.265) that
+   plays but won't draw to a canvas even off a hardware overlay, this is the only
+   way to get markups burned into exports: convert once, load the copy, and every
+   canvas export works at full quality. The copy keeps the same timeline, so all
+   existing tags/markups line up unchanged. */
+function makeH264Copy(){
+  if(!S.videoName) return toast('Load the match first, then make the copy');
+  const name=S.videoName;
+  const dot=name.lastIndexOf('.'), base=dot>0?name.slice(0,dot):name;
+  const res=($('#h264res')||{}).value||'1080';
+  const out=base+'-H264'+(res==='source'?'':'-'+res+'p')+'.mp4';
+  const scale = res==='source' ? '' : `-vf scale=-2:${res} `;
+  const lines=[
+    'echo Making a playable H.264 copy: "'+out+'"',
+    'echo A full match can take several minutes. Leave this window open until it says Done.',
+    `"%FF%" -y -i "${name}" ${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "${out}"`
+  ];
+  download(new Blob([ffmpegBat(lines)],{type:'application/octet-stream'}), 'make-H264-copy.bat');
+  toast('Saved make-H264-copy.bat — put it in your match folder and double-click, then load the copy');
+}
 function ffmpegCutClip(m){
   if(!m) return toast('Pick a clip first');
   const name=S.videoName||'match.mp4';
@@ -5289,6 +5321,7 @@ async function compileReel(){
   }
 }
 $('#reelbtn').addEventListener('click', compileReel);
+$('#makeh264').addEventListener('click', makeH264Copy);
 
 $('#exportall').addEventListener('click',()=>{
   const name = S.videoName || 'match.mp4';
