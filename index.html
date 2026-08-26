@@ -890,16 +890,19 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="eyebrow" style="margin-bottom:5px">⚑ Exports coming out black? Do this once</div>
         <label class="field" style="margin-bottom:6px"><span class="eyebrow">Copy quality</span>
           <select id="h264res">
-            <option value="1080" selected>1080p — recommended (fixes black exports)</option>
+            <option value="source" selected>Match source — full res</option>
+            <option value="1080">1080p — safest for black exports</option>
             <option value="720">720p — smaller &amp; faster</option>
-            <option value="source">Match source — same size, may still export black</option>
           </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px">
+          <input type="checkbox" id="h264test" style="width:auto"> Just a 60-second test sample (to check a setting works before converting the whole match)
         </label>
         <label class="field" style="margin-bottom:6px"><span class="eyebrow">Save copies into this folder</span>
           <input type="text" id="h264out" spellcheck="false" placeholder="e.g. C:\Users\You\Dropbox\KIDS SPORTS VIDEOS" value="C:\Users\ChadFerguson\Dropbox\KIDS SPORTS VIDEOS">
         </label>
         <button class="btn primary" id="makeh264">Save the converter (.bat)</button>
-        <div class="hint" id="h264hint">Your footage is <b>4K</b>, which this PC decodes onto a hardware layer the browser can’t read — so canvas exports record black. Making a <b>1080p</b> copy routes it through a readable path and fixes that (a full-res 4K copy usually stays black, so keep this on 1080p). This saves <b>one reusable converter</b> — keep it on your Desktop or in Dropbox. <b>Drag your match video(s) onto it</b> (or drop it in a folder and double-click) and it writes copies into the folder above. First run installs ffmpeg via winget. <b>Let it run right through to “Done.”</b> (a full match takes many minutes; closing early leaves a broken file). Then <b>load a copy</b> in Chalkline, choose <b>Keep my clips</b>, and every export works with your markups. Tags stay aligned: the copy keeps the same timeline.</div>
+        <div class="hint" id="h264hint">Your footage is <b>4K</b>, which this PC decodes onto a hardware layer the browser can’t read — so canvas exports record black. Making a browser-readable copy fixes it. <b>Full res may still come out black</b> (the 4K is the likely cause); <b>1080p is the safe bet.</b> Not sure? Tick <b>“60-second test sample,”</b> save the test converter, drag one match on, then load the tiny <code>-TEST</code> copy and export a clip — if it shows footage, that setting works, so untick and convert for real. This saves <b>one reusable converter</b> — keep it on your Desktop or in Dropbox. <b>Drag match video(s) onto it</b> (or drop it in a folder and double-click); copies go to the folder above. First run installs ffmpeg via winget. <b>Let it run to “Done.”</b> — a full match takes many minutes; closing early just leaves a <code>.part</code> file. Then <b>load a copy</b>, choose <b>Keep my clips</b>, and exports work with your markups. Tags stay aligned: the copy keeps the same timeline.</div>
 
         <div class="sep"></div>
         <div class="eyebrow">Whole game reel</div>
@@ -1135,7 +1138,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v187';
+const APP_VERSION = 'v188';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4969,9 +4972,10 @@ function ffmpegBat(cutLines){
    downscaling to 1080p routes it through a readable path. Skips anything already
    named -H264 so re-runs don't reconvert copies; writes .part then renames on
    success so an interrupted run never leaves a finished-looking broken file. */
-function h264ConverterBat(outFolder, res){
+function h264ConverterBat(outFolder, res, test){
   const scale  = res==='source' ? '' : `-vf scale=-2:${res} `;
-  const suffix = res==='source' ? '-H264' : '-H264-'+res+'p';
+  const dur    = test ? '-t 60 ' : '';                 /* 60-second sample to test a setting fast */
+  const suffix = (res==='source' ? '-H264' : '-H264-'+res+'p') + (test ? '-TEST' : '');
   const ff = [
     'set "FF="',
     'where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
@@ -5010,7 +5014,7 @@ function h264ConverterBat(outFolder, res){
     'echo   Converting "%~nx1" ... this can take many minutes - leave it running',
     /* write to a .part file, rename only on success — so if the window is closed
        partway there is no finished-looking-but-broken .mp4, just a .part */
-    `"%FF%" -y -i "%~1" ${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "!DST!.part"`,
+    `"%FF%" -y -i "%~1" ${dur}${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "!DST!.part"`,
     'if errorlevel 1 ( echo   FAILED "%~nx1" - no copy written & del "!DST!.part" 2>nul & exit /b )',
     'move /y "!DST!.part" "!DST!" >nul && echo   Saved copy of "%~nx1"',
     'exit /b',
@@ -5024,12 +5028,14 @@ function h264ConverterBat(outFolder, res){
   return lines.join('\r\n');
 }
 function makeH264Copy(){
-  const res=($('#h264res')||{}).value||'1080';
+  const res=($('#h264res')||{}).value||'source';
+  const test=!!($('#h264test')||{}).checked;
   const outFolder=(($('#h264out')||{}).value||'').trim().replace(/[\\/]+$/,'');
-  download(new Blob([h264ConverterBat(outFolder,res)],{type:'application/octet-stream'}),
-    'Chalkline convert to H264.bat');
-  toast(outFolder ? 'Converter saved — drag your match videos onto it; copies go to your folder'
-                  : 'Converter saved — drag your match videos onto it');
+  const fname = test ? 'Chalkline TEST converter (60s).bat' : 'Chalkline convert to H264.bat';
+  download(new Blob([h264ConverterBat(outFolder,res,test)],{type:'application/octet-stream'}), fname);
+  toast(test ? 'Test converter saved — drag one match onto it for a quick 60s -TEST copy'
+             : (outFolder ? 'Converter saved — drag your match videos onto it; copies go to your folder'
+                          : 'Converter saved — drag your match videos onto it'));
 }
 function ffmpegCutClip(m){
   if(!m) return toast('Pick a clip first');
@@ -5386,6 +5392,10 @@ async function compileReel(){
 }
 $('#reelbtn').addEventListener('click', compileReel);
 $('#makeh264').addEventListener('click', makeH264Copy);
+if($('#h264test')){
+  const relabel=()=>{ $('#makeh264').textContent = $('#h264test').checked ? 'Save the 60-second TEST converter (.bat)' : 'Save the converter (.bat)'; };
+  $('#h264test').addEventListener('change', relabel); relabel();
+}
 
 $('#exportall').addEventListener('click',()=>{
   const name = S.videoName || 'match.mp4';
