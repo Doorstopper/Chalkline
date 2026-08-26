@@ -1138,7 +1138,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v189';
+const APP_VERSION = 'v190';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5013,8 +5013,9 @@ function h264ConverterBat(outFolder, res, test){
     `set "DST=%OUT%\\%~n1${suffix}.mp4"`,
     'echo   Converting "%~nx1" ... this can take many minutes - leave it running',
     /* write to a .part file, rename only on success — so if the window is closed
-       partway there is no finished-looking-but-broken .mp4, just a .part */
-    `"%FF%" -y -i "%~1" ${dur}${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "!DST!.part"`,
+       partway there is no finished-looking-but-broken .mp4, just a .part.
+       -f mp4 is REQUIRED because the .part extension hides the format from ffmpeg. */
+    `"%FF%" -y -i "%~1" ${dur}${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -movflags +faststart -c:a aac -b:a 192k -f mp4 "!DST!.part"`,
     'if errorlevel 1 ( echo   FAILED "%~nx1" - if it lives in Dropbox/OneDrive, right-click it and choose "Always keep on this device", let it finish downloading, then run this again. & del "!DST!.part" 2>nul & exit /b )',
     'move /y "!DST!.part" "!DST!" >nul && echo   Saved copy of "%~nx1"',
     'exit /b',
