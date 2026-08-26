@@ -1135,7 +1135,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v186';
+const APP_VERSION = 'v187';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -4961,15 +4961,14 @@ function ffmpegBat(cutLines){
   ];
   return head.concat(cutLines, ['','echo.','echo Done - your clip(s) are in this folder.','pause']).join('\r\n');
 }
-/* Make a whole-match H.264 copy the browser CAN read. For footage (H.265) that
-   plays but won't draw to a canvas even off a hardware overlay, this is the only
-   way to get markups burned into exports: convert once, load the copy, and every
-   canvas export works at full quality. The copy keeps the same timeline, so all
-   existing tags/markups line up unchanged. */
 /* One reusable converter the user keeps (Desktop/Dropbox). Drag match files onto
-   it — or drop it in a folder of matches and double-click — and it writes H.264
-   copies into a fixed output folder (so they outlive a weekly microSD wipe).
-   Skips anything already named -H264 so re-runs don't reconvert the copies. */
+   it — or drop it in a folder of matches and double-click — and it writes a
+   browser-readable copy into a fixed output folder (so they outlive a weekly
+   microSD wipe). Default 1080p: the user's footage is 4K, which this PC decodes
+   onto a hardware overlay the browser can't read (canvas/screen-capture go black);
+   downscaling to 1080p routes it through a readable path. Skips anything already
+   named -H264 so re-runs don't reconvert copies; writes .part then renames on
+   success so an interrupted run never leaves a finished-looking broken file. */
 function h264ConverterBat(outFolder, res){
   const scale  = res==='source' ? '' : `-vf scale=-2:${res} `;
   const suffix = res==='source' ? '-H264' : '-H264-'+res+'p';
@@ -5007,8 +5006,13 @@ function h264ConverterBat(outFolder, res){
     ':conv',
     'if "%~1"=="" exit /b',
     'echo %~n1| findstr /I "\\-H264" >nul && ( echo   skipping already-converted "%~nx1" & exit /b )',
-    'echo   Converting "%~nx1" ...',
-    `"%FF%" -y -i "%~1" ${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "%OUT%\\%~n1${suffix}.mp4"`,
+    `set "DST=%OUT%\\%~n1${suffix}.mp4"`,
+    'echo   Converting "%~nx1" ... this can take many minutes - leave it running',
+    /* write to a .part file, rename only on success — so if the window is closed
+       partway there is no finished-looking-but-broken .mp4, just a .part */
+    `"%FF%" -y -i "%~1" ${scale}-c:v libx264 -crf 20 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "!DST!.part"`,
+    'if errorlevel 1 ( echo   FAILED "%~nx1" - no copy written & del "!DST!.part" 2>nul & exit /b )',
+    'move /y "!DST!.part" "!DST!" >nul && echo   Saved copy of "%~nx1"',
     'exit /b',
     '',
     ':done',
