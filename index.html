@@ -1117,7 +1117,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v175';
+const APP_VERSION = 'v176';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -3245,6 +3245,11 @@ draw.addEventListener('pointerdown', e=>{
     }
     if(!isSel(hit.s)) selection=[hit.s];                 /* grabbing an unselected mark picks it */
     beginMove(p, hit); render(); return;
+  }
+  /* full screen: a click on empty video (not a mark) dismisses the button panel
+     right away — a quicker way off than the 2.6s auto-hide, which still applies */
+  if(immersive && !stageEl.classList.contains('hideui')){
+    clearTimeout(immIdleT); stageEl.classList.add('hideui'); return;
   }
   if(!e.shiftKey && selection.length){ selection=[]; render(); }
   if(!tool){ marquee={a:p,b:p,add:e.shiftKey}; return; }   /* no tool, not panning: drag a selection box */
