@@ -1138,7 +1138,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v190';
+const APP_VERSION = 'v191';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5205,8 +5205,22 @@ async function exportClip(){
     /* each mark shows only inside its own freeze window, so the lead-in is clean,
        every freeze point lights up in turn, and Whole-clip shows everything */
     const shapesAt=t=>{ const sh=curClip.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll)); sh.forEach(s=>s._alpha=shapeAlphaAt(s,t,hold,burnAll)); return sh; };
+    /* Some GPUs won't hand a PAUSED frame to a canvas — it reads back black — so a
+       freeze on the markup would export black even though the moving footage is
+       fine. Keep the last MOVING frame in an offscreen canvas and paint THAT during
+       freezes, instead of the (black) paused video. */
+    const froze=document.createElement('canvas'); froze.width=cv.width; froze.height=cv.height;
+    const fx=froze.getContext('2d'); let frozeReady=false;
     const frame=()=>{
       c.drawImage(vid,0,0,cv.width,cv.height);
+      fx.drawImage(vid,0,0,froze.width,froze.height); frozeReady=true;   /* stash latest moving frame */
+      const sh=shapesAt(vid.currentTime);
+      if(sh.length) paint(c,cv.width,cv.height,sh,null);
+      paintCaption(c,cv.width,cv.height,curClip.caption);
+    };
+    const holdFrame=()=>{
+      if(frozeReady) c.drawImage(froze,0,0,cv.width,cv.height);   /* last good footage, not the black paused frame */
+      else c.drawImage(vid,0,0,cv.width,cv.height);
       const sh=shapesAt(vid.currentTime);
       if(sh.length) paint(c,cv.width,cv.height,sh,null);
       paintCaption(c,cv.width,cv.height,curClip.caption);
@@ -5214,7 +5228,7 @@ async function exportClip(){
     const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
       await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
     const holdFor=async secs=>{ if(secs<=0) return; const t0=performance.now();
-      await new Promise(res=>{ (function h(){ frame();
+      await new Promise(res=>{ (function h(){ holdFrame();
         performance.now()-t0<secs*1000?requestAnimationFrame(h):res(); })(); }); };
     const rateAt=t=>{ const zs=curClip.slow; if(!Array.isArray(zs)) return 1; const z=zs.find(q=>t>=q.from&&t<=q.to); return z?z.rate:1; };
     const playTo=async to=>{
@@ -5348,15 +5362,27 @@ async function compileReel(){
       const mStart=clipStart(m), mEnd=clipEnd(m);
 
       const shapesAt=t=>{ const sh=m.shapes.filter(s=> shapeVisibleAt(s,t,hold,burnAll)); sh.forEach(s=>s._alpha=shapeAlphaAt(s,t,hold,burnAll)); return sh; };
+      /* paused frames read back black on some GPUs — keep the last moving frame and
+         paint that during freezes instead of the black paused video (see exportClip) */
+      const froze=document.createElement('canvas'); froze.width=cv.width; froze.height=cv.height;
+      const fx=froze.getContext('2d'); let frozeReady=false;
       const frame=()=>{
         c.drawImage(vid,0,0,cv.width,cv.height);
+        fx.drawImage(vid,0,0,froze.width,froze.height); frozeReady=true;
+        const sh=shapesAt(vid.currentTime);
+        if(sh.length) paint(c,cv.width,cv.height,sh,null);
+        paintCaption(c,cv.width,cv.height,m.caption);
+      };
+      const holdFrame=()=>{
+        if(frozeReady) c.drawImage(froze,0,0,cv.width,cv.height);
+        else c.drawImage(vid,0,0,cv.width,cv.height);
         const sh=shapesAt(vid.currentTime);
         if(sh.length) paint(c,cv.width,cv.height,sh,null);
         paintCaption(c,cv.width,cv.height,m.caption);
       };
       const seekTo=async t=>{ vid.pause(); vid.currentTime=t;
         await new Promise(r=>vid.addEventListener('seeked',r,{once:true})); };
-      const holdFor=async secs=>{ if(secs>0) await runFor(secs*1000, ()=>frame()); };
+      const holdFor=async secs=>{ if(secs>0) await runFor(secs*1000, ()=>holdFrame()); };
       const rateAt=t=>{ const zs=m.slow; if(!Array.isArray(zs)) return 1; const z=zs.find(q=>t>=q.from&&t<=q.to); return z?z.rate:1; };
       const playTo=async to=>{ await vid.play();
         await new Promise(res=>{ (function f(){
