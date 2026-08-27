@@ -921,6 +921,11 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <div class="hint" id="reelhint">Plays every clip through once to record it, so it takes about as long as the reel itself.</div>
 
         <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">True 4K clip WITH markups (for 4K footage)</div>
+        <button class="btn primary" id="export4k">This clip in 4K + markups — double-click .bat</button>
+        <div class="hint" id="export4khint">For 4K footage the browser can’t export with markups (it records black). This saves a <code>.bat</code> for the <b>selected clip</b>: <b>drag your match video onto it</b> (or drop it in the match folder) and ffmpeg cuts the full-res footage and burns your markups on — holding the freeze frame with the markup, exactly like Chalkline plays it. Your markups ride inside the file, so it’s a single download. First run installs ffmpeg via winget. Send the result on WhatsApp as a <b>Document</b> to keep the quality.</div>
+
+        <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Full-res clips (true original quality)</div>
         <button class="btn primary" id="exportall">Make all clips — double-click .bat</button>
         <div class="hint" id="batinfo"><b>Windows, ultra-simple:</b> saves a <code>.bat</code> (plus a session backup). Put the <code>.bat</code> in the <b>same folder as your match video</b> and double-click it — it cuts every clip at full source resolution, visually lossless, and stitches a reel. First run installs ffmpeg for you (via winget); after that it just runs. No terminal.</div>
@@ -1138,7 +1143,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v191';
+const APP_VERSION = 'v192';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5049,6 +5054,101 @@ function ffmpegCutClip(m){
   download(new Blob([ffmpegBat(lines)],{type:'application/octet-stream'}), 'make-'+safe(m.label)+'.bat');
   toast('Saved make-'+safe(m.label)+'.bat — drop it in your match folder and double-click');
 }
+/* Render this clip's markups at source time t onto a TRANSPARENT canvas at full
+   source resolution, and return raw PNG base64. No video is drawn, so the 4K
+   readback problem never applies — the markup layer always renders. */
+function markupPNGb64(m,t){
+  const W=vid.videoWidth, H=vid.videoHeight;
+  const burnAll=(($('#burnmode')||{}).value==='all');
+  const holdV=+($('#hold')||{}).value||0;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  const c=cv.getContext('2d');
+  const sh=m.shapes.filter(s=> shapeVisibleAt(s,t,holdV,burnAll));
+  sh.forEach(s=> s._alpha=shapeAlphaAt(s,t,holdV,burnAll));
+  if(sh.length) paint(c,W,H,sh,null);
+  paintCaption(c,W,H,m.caption);
+  return cv.toDataURL('image/png').split(',')[1];
+}
+/* TRUE 4K clip with markups burned in — bypasses the browser canvas entirely.
+   ffmpeg (in a self-installing .bat) cuts the full-res footage from the source and
+   overlays Chalkline-rendered markup PNGs, holding the freeze frame with the markup
+   on it. One file: drag the match video onto it (or drop it in the match folder).
+   The markup PNGs ride along inside the .bat as base64 and are unpacked at run. */
+function make4KClipBat(m){
+  if(!m) return toast('Pick a clip first');
+  if(!vid.videoWidth) return toast('Load the match first');
+  const name=S.videoName||'match.mp4';
+  const start=clipStart(m), end=clipEnd(m);
+  const holdV=+($('#hold')||{}).value||0;
+  const R=Math.max(1,Math.round(fps||30));
+  const enc=`-r ${R} -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k -ar 48000 -ac 2 -video_track_timescale 15360`;
+  const freezes=freezeStops(m,start,end,holdV).filter(st=>st.hold>0);
+  const out=safe(m.label)+'-'+Math.round(m.t)+'s-4K.mp4';
+  const pngs=[], cmds=[], parts=[];
+  const movSeg=(idx,a,b)=>{ const f=`s${idx}.mp4`;
+    cmds.push(`echo   footage ${a.toFixed(1)}-${b.toFixed(1)}s ...`);
+    cmds.push(`"%FF%" -y -ss ${a.toFixed(3)} -to ${b.toFixed(3)} -i "%SRC%" ${enc} "%W%\\${f}"`);
+    parts.push(f); };
+  const freezeSeg=(idx,t,hold)=>{ const png=`m${idx}.png`, frame=`f${idx}.png`, z=`z${idx}.mp4`;
+    pngs.push({file:png, b64:markupPNGb64(m,t)});
+    cmds.push(`echo   freeze at ${t.toFixed(1)}s hold ${hold}s ...`);
+    cmds.push(`"%FF%" -y -ss ${t.toFixed(3)} -i "%SRC%" -frames:v 1 "%W%\\${frame}"`);
+    cmds.push(`"%FF%" -y -loop 1 -i "%W%\\${frame}" -i "%W%\\${png}" -f lavfi -i anullsrc=r=48000:cl=stereo -filter_complex "[0][1]overlay=0:0,format=yuv420p[v]" -map "[v]" -map 2:a -t ${(+hold).toFixed(2)} ${enc} "%W%\\${z}"`);
+    parts.push(z); };
+  if(freezes.length){
+    let prev=start, i=0;
+    freezes.forEach(st=>{ if(st.t-prev>0.05) movSeg(i++, prev, st.t); freezeSeg(i++, st.t, st.hold); prev=st.t; });
+    if(end-prev>0.05) movSeg(i++, prev, end);
+  } else {
+    pngs.push({file:'m0.png', b64:markupPNGb64(m, m.t)});
+    cmds.push(`echo   footage with markup ${start.toFixed(1)}-${end.toFixed(1)}s ...`);
+    cmds.push(`"%FF%" -y -ss ${start.toFixed(3)} -to ${end.toFixed(3)} -i "%SRC%" -i "%W%\\m0.png" -filter_complex "[0][1]overlay=0:0,format=yuv420p[v]" -map "[v]" -map 0:a? ${enc} "%W%\\s0.mp4"`);
+    parts.push('s0.mp4');
+  }
+  const head=[
+    '@echo off','setlocal','cd /d "%~dp0"','title Chalkline - 4K clip with markups',
+    'set "SRC=%~1"',
+    `if "%SRC%"=="" for %%F in ("${name}") do set "SRC=%%~fF"`,
+    'if not exist "%SRC%" ( echo. & echo Drag your MATCH VIDEO onto this file - or put this file in the same folder as the match - then run it again. & echo. & pause & exit /b 1 )',
+    `set "OUT=%~dp0${out}"`,
+    'set "W=%TEMP%\\chalkline4k"',
+    'if exist "%W%" rd /s /q "%W%"',
+    'mkdir "%W%" 2>nul',
+    'set "FF="',
+    'where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
+    'if not defined FF if exist "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe" set "FF=%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe"',
+    'if not defined FF (',
+    '  echo Installing ffmpeg once, via Windows winget - this can take a minute...',
+    '  winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements',
+    '  where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
+    '  if not defined FF if exist "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe" set "FF=%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe"',
+    ')',
+    'if not defined FF ( echo Could not find or install ffmpeg. Install once from https://ffmpeg.org then run again. & pause & exit /b 1 )',
+    'echo Unpacking markups...',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=\'%~f0\'; $w=\'%W%\'; $L=Get-Content -LiteralPath $p; for($i=0;$i -lt $L.Count;$i++){ $mm=[regex]::Match($L[$i],\'^#PNG:(.+)#$\'); if($mm.Success){ $n=$mm.Groups[1].Value; $sb=New-Object Text.StringBuilder; $i++; while($i -lt $L.Count -and $L[$i] -ne \'#END#\'){ [void]$sb.Append($L[$i].Trim()); $i++ }; [IO.File]::WriteAllBytes((Join-Path $w $n),[Convert]::FromBase64String($sb.ToString())) } }"',
+    'echo Building the 4K clip - this can take a few minutes. Leave this window open until Done.',
+    ''
+  ];
+  const concat=[
+    '',
+    `(${parts.map(f=>`echo file '${f}'`).join(' & ')}) > "%W%\\list.txt"`,
+    'echo Stitching...',
+    '"%FF%" -y -f concat -safe 0 -i "%W%\\list.txt" -c copy "%OUT%"',
+    'rd /s /q "%W%" 2>nul',
+    'echo.',
+    'echo Done. Saved next to this file:',
+    'echo   "%OUT%"',
+    'echo (To keep full quality on WhatsApp, send it as a Document, not a video.)',
+    'pause',
+    'exit /b',
+    ''
+  ];
+  const blocks=[];
+  pngs.forEach(p=>{ blocks.push('#PNG:'+p.file+'#', p.b64, '#END#'); });
+  const bat = head.concat(cmds, concat, blocks).join('\r\n');
+  download(new Blob([bat],{type:'application/octet-stream'}), 'make-'+safe(m.label)+'-4K.bat');
+  toast('Saved make-'+safe(m.label)+'-4K.bat — drag your match video onto it');
+}
 /* Full-res clip with no markup, recorded straight from the video element's own
    decoded frames (not a canvas). This is the ONE thing that works for H.265,
    which comes back blank through a canvas — so "Export clip" just works, one
@@ -5419,6 +5519,7 @@ async function compileReel(){
 }
 $('#reelbtn').addEventListener('click', compileReel);
 $('#makeh264').addEventListener('click', makeH264Copy);
+$('#export4k')&&$('#export4k').addEventListener('click', ()=>make4KClipBat(curClip));
 if($('#h264test')){
   const relabel=()=>{ $('#makeh264').textContent = $('#h264test').checked ? 'Save the 60-second TEST converter (.bat)' : 'Save the converter (.bat)'; };
   $('#h264test').addEventListener('change', relabel); relabel();
