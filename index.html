@@ -961,6 +961,10 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
         <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">True 4K clip WITH markups (for 4K footage)</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
+          <button class="btn small" id="vfprobe" title="Checks whether this PC can hand 4K frames to the browser for a one-click export">Test one-click 4K capture</button>
+          <span class="hint" id="vfstatus" style="margin:0;flex:1">Runs by itself the first time a match plays.</span>
+        </div>
         <button class="btn primary" id="export4k">This clip in 4K + markups — double-click .bat</button>
         <div class="hint" id="export4khint">For 4K footage the browser can’t export with markups (it records black). This saves a <code>.bat</code> for the <b>selected clip</b>: <b>drag your match video onto it</b> (or drop it in the match folder) and ffmpeg cuts the full-res footage and burns your markups on — holding the freeze frame with the markup, exactly like Chalkline plays it. Your markups ride inside the file, so it’s a single download. First run installs ffmpeg via winget. Send the result on WhatsApp as a <b>Document</b> to keep the quality.</div>
 
@@ -1182,7 +1186,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v194';
+const APP_VERSION = 'v195';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2191,7 +2195,7 @@ function watchFrameRate(){
   };
   vid.requestVideoFrameCallback(tick);
 }
-vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); if(immersive) immShow(); });
+vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); if(immersive) immShow(); VF.autoProbe(); });
 vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); if(immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); } });
 vid.addEventListener('timeupdate', updateTC);
 
@@ -5159,6 +5163,66 @@ function ffmpegCutClip(m){
   download(new Blob([ffmpegBat(lines)],{type:'application/octet-stream'}), 'make-'+safe(m.label)+'.bat');
   toast('Saved make-'+safe(m.label)+'.bat — drop it in your match folder and double-click'); markExported(m);
 }
+/* ---------- VideoFrame capture (one-click 4K in the browser) ----------
+   On this user's GPU a 4K <video> element can't be read by a canvas (black), but
+   the SAME frames do flow through captureStream() — that's how the no-markup
+   full-res export works. MediaStreamTrackProcessor hands those frames to JS as
+   VideoFrame objects, which a canvas CAN draw. So: keep the newest VideoFrame and
+   paint it instead of the element. During a freeze the stream stops, so the last
+   moving frame simply stays put — exactly the freeze behaviour we want. Whether
+   this actually reads back non-black is GPU-specific, so it is probed once and
+   only used when the probe passed. */
+const VF={ on:false, proc:null, reader:null, latest:null, pumping:false, probing:false,
+  supported(){ return !!(window.MediaStreamTrackProcessor && (vid.captureStream||vid.mozCaptureStream)); },
+  src(){ return (this.on && this.latest) ? this.latest : vid; },
+  async start(){
+    this.on = (S.vfCap==='ok') && this.supported();
+    if(!this.on) return;
+    try{
+      const st=vid.captureStream?vid.captureStream():vid.mozCaptureStream();
+      const tr=st.getVideoTracks()[0]; if(!tr){ this.on=false; return; }
+      this.proc=new MediaStreamTrackProcessor({track:tr});
+      this.reader=this.proc.readable.getReader(); this.pumping=true;
+      (async()=>{ try{ while(this.pumping){ const {value,done}=await this.reader.read(); if(done) break;
+        if(this.latest) this.latest.close(); this.latest=value; } }catch(e){} })();
+    }catch(e){ this.on=false; }
+  },
+  stop(){ this.pumping=false; try{ this.reader&&this.reader.cancel(); }catch(e){}
+    try{ this.latest&&this.latest.close(); }catch(e){} this.reader=null; this.proc=null; this.latest=null; this.on=false; },
+  /* play a moment, read a few real frames, and check the LAST one isn't black */
+  async probe(silent){
+    if(this.probing) return S.vfCap; this.probing=true;
+    const setStatus=v=>{ S.vfCap=v; save(true); const el=$('#vfstatus'); if(el) el.textContent =
+      v==='ok' ? '✓ One-click 4K works on this PC — Export clip and the reel use it automatically.'
+    : v==='fail' ? '✗ This PC hides 4K frames even from capture — use the 4K .bat below for markups.'
+    : 'Not supported in this browser — use the 4K .bat below.'; };
+    try{
+      if(!this.supported()){ setStatus('unsupported'); return 'unsupported'; }
+      if(!vid.videoWidth){ if(!silent) toast('Load the match first'); return S.vfCap; }
+      const wasPaused=vid.paused, wasMuted=vid.muted;
+      vid.muted=true; await vid.play().catch(()=>{});
+      const st=vid.captureStream?vid.captureStream():vid.mozCaptureStream();
+      const tr=st.getVideoTracks()[0];
+      const reader=new MediaStreamTrackProcessor({track:tr}).readable.getReader();
+      let last=null, max=0;
+      for(let i=0;i<12;i++){ const {value,done}=await reader.read(); if(done) break; if(last) last.close(); last=value; }
+      if(last){
+        const p=document.createElement('canvas'); p.width=48; p.height=27;
+        const pc=p.getContext('2d',{willReadFrequently:true}); pc.drawImage(last,0,0,48,27);
+        const d=pc.getImageData(0,0,48,27).data; for(let i=0;i<d.length;i+=4) max=Math.max(max,d[i],d[i+1],d[i+2]);
+        last.close();
+      }
+      try{ reader.cancel(); }catch(e){}
+      if(wasPaused) vid.pause(); vid.muted=wasMuted;
+      setStatus(max>=10?'ok':'fail');
+      if(!silent) toast(max>=10?'One-click 4K capture works on this PC':'This PC blocks 4K capture — use the 4K .bat');
+      return S.vfCap;
+    }catch(e){ setStatus('fail'); return 'fail'; }
+    finally{ this.probing=false; }
+  },
+  /* first time a video plays this session, quietly find out — no click needed */
+  autoProbe(){ if(S.vfCap||this.probing||!vid.videoWidth) return; setTimeout(()=>{ if(!vid.paused) this.probe(true); },1200); }
+};
 /* Render this clip's markups at source time t onto a TRANSPARENT canvas at full
    source resolution, and return raw PNG base64. No video is drawn, so the 4K
    readback problem never applies — the markup layer always renders. */
@@ -5367,8 +5431,11 @@ async function exportClip(){
   /* H.265 (or anything a canvas can't read DURING PLAYBACK) can't burn markups
      through a canvas — it comes back black. Record what's actually on screen
      instead, so the clip exports exactly as seen: footage WITH the markups. */
-  if(!(await videoReadablePlaying())) return recordClipScreen(curClip);
+  /* if VideoFrame capture passed its probe, the canvas path works at 4K — skip the
+     screen-capture fallback entirely */
+  if(S.vfCap!=='ok' && !(await videoReadablePlaying())) return recordClipScreen(curClip);
   const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
+  await VF.start();                        /* feed the canvas from VideoFrames when this PC needs it */
 
   const cv=exportCanvas(), c=cv.getContext('2d');
   const stream=cv.captureStream(exportFps());
@@ -5417,15 +5484,16 @@ async function exportClip(){
     const froze=document.createElement('canvas'); froze.width=cv.width; froze.height=cv.height;
     const fx=froze.getContext('2d'); let frozeReady=false;
     const frame=()=>{
-      c.drawImage(vid,0,0,cv.width,cv.height);
-      fx.drawImage(vid,0,0,froze.width,froze.height); frozeReady=true;   /* stash latest moving frame */
+      const srcF=VF.src();                                  /* VideoFrame when capture works, else the element */
+      c.drawImage(srcF,0,0,cv.width,cv.height);
+      fx.drawImage(srcF,0,0,froze.width,froze.height); frozeReady=true;   /* stash latest moving frame */
       const sh=shapesAt(vid.currentTime);
       if(sh.length) paint(c,cv.width,cv.height,sh,null);
       paintCaption(c,cv.width,cv.height,curClip.caption);
     };
     const holdFrame=()=>{
       if(frozeReady) c.drawImage(froze,0,0,cv.width,cv.height);   /* last good footage, not the black paused frame */
-      else c.drawImage(vid,0,0,cv.width,cv.height);
+      else c.drawImage(VF.src(),0,0,cv.width,cv.height);
       const sh=shapesAt(vid.currentTime);
       if(sh.length) paint(c,cv.width,cv.height,sh,null);
       paintCaption(c,cv.width,cv.height,curClip.caption);
@@ -5458,6 +5526,7 @@ async function exportClip(){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
     toast('Export failed — try the ffmpeg cut list instead');
   } finally {
+    VF.stop();
     AudioMix.end();
     exporting = false;
     vid.playbackRate=wasRate; vid.muted=wasMuted;
@@ -5506,7 +5575,7 @@ async function compileReel(){
   if(($('#exportres')||{}).value==='ffmpeg'){ $('#exportall').click(); return; }   /* ffmpeg reel = cut list + join */
   if(!vid.videoWidth) return toast('Load the match first');
   if(exporting) return toast('Already exporting — give it a moment');
-  if(!(await videoReadablePlaying())) return warnBlank();
+  if(S.vfCap!=='ok' && !(await videoReadablePlaying())) return warnBlank();
   const reelKind=($('#reelkind')||{}).value||'all';
   let list=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
   if(reelKind!=='all') list=list.filter(m=>m.kind===reelKind);
@@ -5524,6 +5593,7 @@ async function compileReel(){
       `It records in real time, so it will take about that long and the tab has to stay open and visible. Start now?`))
     return;
   const target = await exportTarget();   /* the confirm click is the gesture that lets us claim the folder */
+  await VF.start();
 
   const cv=exportCanvas(), c=cv.getContext('2d');
   const stream=cv.captureStream(exportFps());
@@ -5572,15 +5642,16 @@ async function compileReel(){
       const froze=document.createElement('canvas'); froze.width=cv.width; froze.height=cv.height;
       const fx=froze.getContext('2d'); let frozeReady=false;
       const frame=()=>{
-        c.drawImage(vid,0,0,cv.width,cv.height);
-        fx.drawImage(vid,0,0,froze.width,froze.height); frozeReady=true;
+        const srcF=VF.src();
+        c.drawImage(srcF,0,0,cv.width,cv.height);
+        fx.drawImage(srcF,0,0,froze.width,froze.height); frozeReady=true;
         const sh=shapesAt(vid.currentTime);
         if(sh.length) paint(c,cv.width,cv.height,sh,null);
         paintCaption(c,cv.width,cv.height,m.caption);
       };
       const holdFrame=()=>{
         if(frozeReady) c.drawImage(froze,0,0,cv.width,cv.height);
-        else c.drawImage(vid,0,0,cv.width,cv.height);
+        else c.drawImage(VF.src(),0,0,cv.width,cv.height);
         const sh=shapesAt(vid.currentTime);
         if(sh.length) paint(c,cv.width,cv.height,sh,null);
         paintCaption(c,cv.width,cv.height,m.caption);
@@ -5617,6 +5688,7 @@ async function compileReel(){
     console.error(err);
     toast('Reel failed partway — the ffmpeg route is more reliable for long ones');
   }finally{
+    VF.stop();
     AudioMix.end();
     exporting=false; vid.playbackRate=wasRate; vid.muted=wasMuted;
     $('#rec').classList.remove('on');
@@ -5626,6 +5698,7 @@ async function compileReel(){
 $('#reelbtn').addEventListener('click', compileReel);
 $('#makeh264').addEventListener('click', makeH264Copy);
 $('#export4k')&&$('#export4k').addEventListener('click', ()=>make4KClipBat(curClip));
+$('#vfprobe')&&$('#vfprobe').addEventListener('click', ()=>VF.probe(false));
 if($('#h264test')){
   const relabel=()=>{ $('#makeh264').textContent = $('#h264test').checked ? 'Save the 60-second TEST converter (.bat)' : 'Save the converter (.bat)'; };
   $('#h264test').addEventListener('change', relabel); relabel();
@@ -5986,7 +6059,7 @@ function save(quiet){
     Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,aeV:1,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,videoKey:S.videoKey,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
-                   titleSecs:($('#titlesecs')||{}).value, h264out:($('#h264out')||{}).value, clipSort,
+                   titleSecs:($('#titlesecs')||{}).value, h264out:($('#h264out')||{}).value, clipSort, vfCap:S.vfCap,
                    fps});
     saveVidLib();                                  /* also remember this game's clips against its video */
     if(pendingLoud){ pendingLoud=false; autoPush(); }
@@ -6053,6 +6126,7 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     if(d.titleSecs && $('#titlesecs')) $('#titlesecs').value = d.titleSecs;
     if(typeof d.h264out==='string' && $('#h264out')) $('#h264out').value = d.h264out;
     if(d.clipSort){ clipSort=d.clipSort; if($('#clipsort')) $('#clipsort').value=clipSort; }
+    if(d.vfCap){ S.vfCap=d.vfCap; }
     fps = d.fps||25;
     $('#offset').value=S.offset; $('#fpsin').value=fps;
     if(S.marks.length) toast(S.marks.length+' marks restored from last session');
