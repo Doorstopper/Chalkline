@@ -81,7 +81,7 @@ button{cursor:pointer;border:none;background:none}
 .btn.danger{color:var(--theirs)}
 
 /* ---------- studio ---------- */
-#studio{display:none;grid-template-columns:205px 1fr 190px 232px;height:100%}
+#studio{display:none;grid-template-columns:240px 1fr 190px 232px;height:100%}
 #studio.on{display:grid}
 .col{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;min-width:0;overflow:hidden;background:var(--pitch)}
 .col:last-child{border-right:none;border-left:1px solid var(--line)}
@@ -130,6 +130,24 @@ button{cursor:pointer;border:none;background:none}
 }
 .cliprow:hover .clipdel,.cliprow .clipdel:focus-visible{opacity:1}
 .cliprow .clipdel:hover{color:var(--theirs);background:var(--turf-hi)}
+/* clip strip v2: thumbnail + body, quiet-but-visible delete, grouped sorting,
+   captions clamp to one line unless the clip is the one playing */
+.clip{display:flex;gap:9px;align-items:flex-start}
+.cliprow .clipdel{opacity:.38}
+.clip .thumb{flex:0 0 60px;width:60px;height:34px;border-radius:4px;overflow:hidden;background:var(--turf-hi);
+  display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:10px;font-weight:700;color:var(--chalk-dim);margin-top:1px}
+.clip .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+.clip .body{flex:1;min-width:0}
+.clip .cap{-webkit-line-clamp:1}
+.clip[aria-current="true"] .cap{-webkit-line-clamp:5}
+.clip .cflag.done{color:#0b1a10;background:#7BE495;border-color:transparent}
+.clipgroup{padding:7px 12px 3px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--chalk-dim);background:var(--pitch);border-bottom:1px solid rgba(63,95,78,.35);position:sticky;top:0;z-index:1}
+.advanced{border-top:1px solid var(--line)}
+.advanced summary{cursor:pointer;padding:7px 12px;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--chalk-dim);list-style:none}
+.advanced summary::-webkit-details-marker{display:none}
+.advanced summary::before{content:'▸ ';}
+.advanced[open] summary::before{content:'▾ ';}
 
 .stage{display:flex;flex-direction:column;min-width:0;min-height:0;background:#060D0A}
 .canvaswrap{
@@ -551,23 +569,36 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <label class="eyebrow" style="flex:1;white-space:nowrap">Show
           <select id="playerfilter" style="margin-top:4px"><option value="__all">All clips</option></select>
         </label>
+        <label class="eyebrow" style="flex:1;white-space:nowrap">Order
+          <select id="clipsort" style="margin-top:4px" title="How the clip list is ordered and grouped">
+            <option value="time">Match order</option>
+            <option value="player">By player</option>
+            <option value="category">By category</option>
+            <option value="kind">Highlights first</option>
+          </select>
+        </label>
+      </div>
+      <div class="colhead" style="gap:8px">
         <label class="eyebrow" style="flex:1;white-space:nowrap">New clips are
           <input type="text" list="playernames" id="defplayer" placeholder="Team" style="margin-top:4px">
         </label>
       </div>
       <datalist id="playernames"></datalist>
       <div class="scroll" id="cliplist"></div>
-      <div style="padding:8px 12px 0;text-align:right">
-        <button class="btn small danger" id="clearclips" title="Remove every clip and its markup from this session">Clear all clips</button>
-      </div>
-      <div class="colhead" style="border-bottom:none;border-top:1px solid var(--line);gap:8px">
-        <label class="eyebrow" style="flex:1;white-space:nowrap">Offset (s)
-          <input type="number" id="offset" step="0.5" value="0" style="margin-top:4px">
-        </label>
-        <label class="eyebrow" style="flex:1;white-space:nowrap">FPS
-          <input type="number" id="fpsin" step="1" value="25" style="margin-top:4px">
-        </label>
-      </div>
+      <details class="advanced">
+        <summary title="Timing offset, frame rate, and clearing the session — rarely needed">Advanced</summary>
+        <div class="colhead" style="border-bottom:none;gap:8px">
+          <label class="eyebrow" style="flex:1;white-space:nowrap">Offset (s)
+            <input type="number" id="offset" step="0.5" value="0" style="margin-top:4px">
+          </label>
+          <label class="eyebrow" style="flex:1;white-space:nowrap">FPS
+            <input type="number" id="fpsin" step="1" value="25" style="margin-top:4px">
+          </label>
+        </div>
+        <div style="padding:2px 12px 10px;text-align:right">
+          <button class="btn small danger" id="clearclips" title="Remove every clip and its markup from this session">Clear all clips</button>
+        </div>
+      </details>
     </div>
 
     <div class="stage">
@@ -1151,7 +1182,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v193';
+const APP_VERSION = 'v194';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1783,6 +1814,49 @@ function updateReelBtn(){
   btn.textContent=`Compile ${scope} (${n}) into one video`;
 }
 
+/* ---------- clip thumbnails ----------
+   Kept in their own store (not inside the marks) so session files and sync
+   payloads stay small. A thumb is only captured while the video is PLAYING —
+   a paused 4K frame reads back black on some GPUs — and only kept if it isn't
+   black, so a clip without one just shows its number on a tag-coloured tile. */
+const Thumbs={ map:{}, t:null,
+  async load(){ try{ this.map=(await Store.get('chalkline:thumbs'))||{}; }catch(e){ this.map={}; } renderClips(); },
+  save(){ clearTimeout(this.t); this.t=setTimeout(()=>{ Store.set('chalkline:thumbs',this.map).catch(()=>{}); },800); },
+  get(m){ return this.map[m.id]; }
+};
+function captureThumb(m){
+  try{
+    if(!vid.videoWidth) return false;
+    const W=160, H=Math.max(1,Math.round(160*vid.videoHeight/vid.videoWidth))||90;
+    const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+    const c=cv.getContext('2d',{willReadFrequently:true});
+    c.drawImage(vid,0,0,W,H);
+    const d=c.getImageData(0,0,W,H).data; let max=0;
+    for(let i=0;i<d.length;i+=16) max=Math.max(max,d[i],d[i+1],d[i+2]);
+    if(max<10) return false;
+    Thumbs.map[m.id]=cv.toDataURL('image/jpeg',0.6); Thumbs.save(); return true;
+  }catch(e){ return false; }
+}
+/* remember that a clip has been exported, so the strip can show a tick */
+function markExported(m){ if(!m) return; m.exported=Date.now(); save(true); renderClips(); }
+
+/* ordering / grouping of the strip. Clip numbers always follow MATCH order so
+   "clip 4" means the same clip whichever way the list is sorted. */
+let clipSort='time';
+function sortedClips(){
+  const shown=[...S.marks].filter(clipInScope);
+  const byT=(a,b)=>a.t-b.t;
+  if(clipSort==='player')   return shown.sort((a,b)=>(playerOf(a)||'~').localeCompare(playerOf(b)||'~')||byT(a,b));
+  if(clipSort==='category') return shown.sort((a,b)=>a.label.localeCompare(b.label)||byT(a,b));
+  if(clipSort==='kind'){ const r=k=>k==='highlight'?0:k==='learning'?1:2; return shown.sort((a,b)=>r(a.kind)-r(b.kind)||byT(a,b)); }
+  return shown.sort(byT);
+}
+function groupKey(m){
+  if(clipSort==='player')   return playerOf(m)||'Team';
+  if(clipSort==='category') return m.label;
+  if(clipSort==='kind')     return m.kind==='highlight'?'★ Highlights':m.kind==='learning'?'🎓 Learning':'Other clips';
+  return '';
+}
 function renderClips(){
   const el = $('#cliplist'); el.innerHTML='';
   refreshPlayerUI();
@@ -1790,12 +1864,16 @@ function renderClips(){
     el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No clips yet. Load a match, tag as you watch with the pads under the video, or Open a saved clips file.</div>';
     return;
   }
-  const shown=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  const shown=sortedClips();
   if(!shown.length){
     el.innerHTML = '<div class="emptylog" style="padding:20px 12px">No clips for this filter. Switch “Show” back to All clips.</div>';
     return;
   }
-  shown.forEach((m, idx)=>{
+  const order=new Map([...S.marks].sort((a,b)=>a.t-b.t).map((m,i)=>[m.id,i+1]));
+  let lastGroup=null;
+  shown.forEach(m=>{
+    const g=groupKey(m);
+    if(g && g!==lastGroup){ const h=document.createElement('div'); h.className='clipgroup'; h.textContent=g; el.appendChild(h); lastGroup=g; }
     const row = document.createElement('div');
     row.className='cliprow';
     const b = document.createElement('button');
@@ -1805,24 +1883,31 @@ function renderClips(){
     const isCur = curClip && curClip.id===m.id;
     b.setAttribute('aria-current', isCur);
     if(isCur) b.style.boxShadow = 'inset 0 0 0 2px '+(COLORS[m.color]?.hex||'var(--flood)');   /* playing ring in the tag colour */
+    const num = order.get(m.id)||'';
     const dur = Math.round(clipEnd(m)-clipStart(m));
     const who = playersOf(m).join(', ');
     const nShapes = (m.shapes||[]).length;
     const hasFreeze = Array.isArray(m.freezes) && m.freezes.length>0;
     const hasSlow = Array.isArray(m.slow) && m.slow.length>0;
-    const flags = [
-      nShapes?`<span class="cflag" title="${nShapes} markup${nShapes===1?'':'s'}">✎ ${nShapes}</span>`:'',
-      hasFreeze?`<span class="cflag" title="Freeze point">❄</span>`:'',
-      hasSlow?`<span class="cflag" title="Slow-mo section">◗</span>`:''
-    ].join('');
     const kindPill = m.kind==='highlight' ? '<span class="kind hl" title="Highlight">★ HL</span>'
                    : m.kind==='learning' ? '<span class="kind lrn" title="Learning clip">🎓 LRN</span>' : '';
-    b.innerHTML = `<div class="t"><span class="tnum">${idx+1}</span><span class="tclock">${fmtClock(clipStart(m))}</span><span class="tdur">${dur}s</span><span class="cflags">${flags}</span></div>
-      <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}${kindPill}</div>
+    const flags = [
+      kindPill,
+      nShapes?`<span class="cflag" title="${nShapes} markup${nShapes===1?'':'s'}">✎ ${nShapes}</span>`:'',
+      hasFreeze?`<span class="cflag" title="Freeze point">❄</span>`:'',
+      hasSlow?`<span class="cflag" title="Slow-mo section">◗</span>`:'',
+      m.exported?`<span class="cflag done" title="Exported ${new Date(m.exported).toLocaleString()}">✓</span>`:''
+    ].join('');
+    const th = Thumbs.get(m);
+    const thumb = th ? `<div class="thumb"><img src="${th}" alt=""></div>`
+                     : `<div class="thumb" style="border-left:3px solid ${COLORS[m.color]?.hex||'transparent'}">${num}</div>`;
+    b.innerHTML = `${thumb}<div class="body">
+      <div class="t"><span class="tnum">${num}</span><span class="tclock">${fmtClock(clipStart(m))}</span><span class="tdur">${dur}s</span><span class="cflags">${flags}</span></div>
+      <div class="c"><span class="dot" style="background:${COLORS[m.color]?.hex}"></span>${esc(m.label)}</div>
       ${who?`<div class="who">${esc(who)}</div>`:''}
-      ${m.caption?`<div class="cap">${esc(m.caption)}</div>`:''}`;
+      ${m.caption?`<div class="cap">${esc(m.caption)}</div>`:''}</div>`;
     /* hover shows the full caption/notes, which the card truncates */
-    b.title = [m.label + (who?' · '+who:''), m.caption, m.ask && ('Ask: '+m.ask)]
+    b.title = [m.label + (who?' · '+who:''), m.caption, m.ask && ('Ask: '+m.ask), m.exported && 'Exported']
       .filter(Boolean).join('\n');
     b.addEventListener('click',()=>openAndLoop(m));   /* click a clip → open it and start playing/looping */
     const del = document.createElement('button');
@@ -2458,6 +2543,7 @@ function tagNow(i, btn){
     player:(S.defaultPlayer||'').trim(), u:Date.now()
   };
   S.marks.push(m);
+  captureThumb(m);   /* the video is playing right now — the one reliable moment to grab a still */
   btn = btn || $('#tagpads').children[i];
   if(btn){ btn.classList.add('hit'); setTimeout(()=>btn.classList.remove('hit'),150); }
   loopArmed = false;
@@ -4799,6 +4885,7 @@ async function writeOut(target, blob, name){
 }
 $('#exportres').addEventListener('change',()=>save(true));
 $('#h264out')&&$('#h264out').addEventListener('change',()=>save(true));
+$('#clipsort')&&$('#clipsort').addEventListener('change',()=>{ clipSort=$('#clipsort').value; save(true); renderClips(); });
 $('#titlesecs')&&$('#titlesecs').addEventListener('change',()=>save(true));
 $('#exportfps').addEventListener('change',()=>save(true));
 $('#exportdir').addEventListener('click', chooseExportDir);
@@ -5070,7 +5157,7 @@ function ffmpegCutClip(m){
     `"%FF%" -y -ss ${s.toFixed(2)} -i "${name}" -t ${d} -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k "${out}"`
   ];
   download(new Blob([ffmpegBat(lines)],{type:'application/octet-stream'}), 'make-'+safe(m.label)+'.bat');
-  toast('Saved make-'+safe(m.label)+'.bat — drop it in your match folder and double-click');
+  toast('Saved make-'+safe(m.label)+'.bat — drop it in your match folder and double-click'); markExported(m);
 }
 /* Render this clip's markups at source time t onto a TRANSPARENT canvas at full
    source resolution, and return raw PNG base64. No video is drawn, so the 4K
@@ -5165,7 +5252,7 @@ function make4KClipBat(m){
   pngs.forEach(p=>{ blocks.push('#PNG:'+p.file+'#', p.b64, '#END#'); });
   const bat = head.concat(cmds, concat, blocks).join('\r\n');
   download(new Blob([bat],{type:'application/octet-stream'}), 'make-'+safe(m.label)+'-4K.bat');
-  toast('Saved make-'+safe(m.label)+'-4K.bat — drag your match video onto it');
+  toast('Saved make-'+safe(m.label)+'-4K.bat — drag your match video onto it'); markExported(m);
 }
 /* Full-res clip with no markup, recorded straight from the video element's own
    decoded frames (not a canvas). This is the ONE thing that works for H.265,
@@ -5200,7 +5287,7 @@ async function recordClipDirect(m){
     const isMp4=(rec.mimeType||mime||'').includes('mp4');
     await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
       safe(m.label)+'-'+Math.round(m.t)+'s.'+(isMp4?'mp4':'webm'));
-    toast('Full-res clip saved'+(isMp4?'':' (WebM)'));
+    toast('Full-res clip saved'+(isMp4?'':' (WebM)')); markExported(m);
   }catch(err){ console.error(err); toast('Export failed — try the ffmpeg cut instead'); }
   finally{ exporting=false; $('#rec').classList.remove('on'); if(status&&wasStatus) status.textContent=wasStatus;
     vid.muted=wasMuted; vid.playbackRate=wasRate; }
@@ -5266,7 +5353,7 @@ async function recordClipScreen(m){
     const isMp4=(rec.mimeType||mime||'').includes('mp4');
     await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
       safe(m.label)+'-'+Math.round(m.t)+'s.'+(isMp4?'mp4':'webm'));
-    toast('Clip saved — as seen, with markups'+(isMp4?'':' (WebM)'));
+    toast('Clip saved — as seen, with markups'+(isMp4?'':' (WebM)')); markExported(m);
   }catch(err){ console.error('screen clip:',err); toast('Export failed — try the ffmpeg cut instead'); }
   finally{ cleanup(); }
 }
@@ -5366,7 +5453,7 @@ async function exportClip(){
     const isMp4 = (rec.mimeType||mime||'').includes('mp4');
     await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
       safe(curClip.label)+'-'+Math.round(curClip.t)+'s.'+(isMp4?'mp4':'webm'));
-    toast('Clip exported');
+    toast('Clip exported'); markExported(curClip);
   } catch(err){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
     toast('Export failed — try the ffmpeg cut list instead');
@@ -5524,6 +5611,7 @@ async function compileReel(){
     await writeOut(target, new Blob(chunks,{type:isMp4?'video/mp4':'video/webm'}),
       'chalkline-'+ktag+'reel-'+ptag+stamp()+'.'+(isMp4?'mp4':'webm'));
     toast('Reel exported — '+list.length+' clips');
+    list.forEach(c=>{ c.exported=Date.now(); }); save(true); renderClips();
   }catch(err){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
     console.error(err);
@@ -5898,7 +5986,7 @@ function save(quiet){
     Store.set(KEY,{pads:S.pads,padsV:S.padsV,lineWt:S.lineWt,autoEditNew:S.autoEditNew,aeV:1,watchMark:S.watchMark,marks:S.marks,tomb:S.tomb,offset:S.offset,
                    videoName:S.videoName,videoKey:S.videoKey,defaultPlayer:S.defaultPlayer,
                    exportRes:($('#exportres')||{}).value, exportFpsV:($('#exportfps')||{}).value,
-                   titleSecs:($('#titlesecs')||{}).value, h264out:($('#h264out')||{}).value,
+                   titleSecs:($('#titlesecs')||{}).value, h264out:($('#h264out')||{}).value, clipSort,
                    fps});
     saveVidLib();                                  /* also remember this game's clips against its video */
     if(pendingLoud){ pendingLoud=false; autoPush(); }
@@ -5964,6 +6052,7 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     if(d.exportFpsV) $('#exportfps').value = d.exportFpsV;
     if(d.titleSecs && $('#titlesecs')) $('#titlesecs').value = d.titleSecs;
     if(typeof d.h264out==='string' && $('#h264out')) $('#h264out').value = d.h264out;
+    if(d.clipSort){ clipSort=d.clipSort; if($('#clipsort')) $('#clipsort').value=clipSort; }
     fps = d.fps||25;
     $('#offset').value=S.offset; $('#fpsin').value=fps;
     if(S.marks.length) toast(S.marks.length+' marks restored from last session');
@@ -5974,5 +6063,6 @@ window.addEventListener('offline', ()=>toast('Offline — tagging still works, s
     if(Sync.auto && endpoint()){ syncState('on', Sync.key+' · syncing'); pull(true); }
   }
   renderClips(); renderTools(); renderTagBar(); updateCap();
+  Thumbs.load();   /* thumbnails live in their own store; paint them once they arrive */
 })();
 </script>
