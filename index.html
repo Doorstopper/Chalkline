@@ -966,7 +966,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <span class="hint" id="vfstatus" style="margin:0;flex:1">Runs by itself the first time a match plays.</span>
         </div>
         <button class="btn primary" id="export4k">This clip in 4K + markups — double-click .bat</button>
-        <div class="hint" id="export4khint">For 4K footage the browser can’t export with markups (it records black). This saves a <code>.bat</code> for the <b>selected clip</b>: <b>drag your match video onto it</b> (or drop it in the match folder) and ffmpeg cuts the full-res footage and burns your markups on — holding the freeze frame with the markup, exactly like Chalkline plays it. Your markups ride inside the file, so it’s a single download. First run installs ffmpeg via winget. Send the result on WhatsApp as a <b>Document</b> to keep the quality.</div>
+        <button class="btn" id="export4kall" style="margin-top:6px">All clips in 4K + a titled reel — one .bat</button>
+        <div class="hint" id="export4khint">Full-resolution clips with everything burned in — freeze frames with their markups, markups that stay on during play, slow-mo sections, captions, and (for the reel) title cards — built by ffmpeg outside the browser, so the 4K black-canvas problem never applies. <b>Just double-click the <code>.bat</code></b>: it finds your match by name in the usual folders (or drag the video onto it), reads the true frame rate, and saves finished files to the <b>“Save copies into this folder”</b> location above. Your markups ride inside the file, so it’s one download. First run installs ffmpeg via winget. Send results on WhatsApp as a <b>Document</b> to keep the quality.</div>
 
         <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Full-res clips (true original quality)</div>
@@ -1186,7 +1187,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v195';
+const APP_VERSION = 'v196';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5238,12 +5239,187 @@ function markupPNGb64(m,t){
   paintCaption(c,W,H,m.caption);
   return cv.toDataURL('image/png').split(',')[1];
 }
+/* ===== 4K .bat engine v2 =====
+   Builds every clip (and optionally a titled reel) as a sequence of PIECES:
+     mov  — a stretch of source footage [a,b] at a constant rate (1, or a slow-mo
+            rate), with any "whole clip"/"linger" markups and the caption laid over
+            it for exactly the seconds they should show;
+     frz  — the frame at a freeze point, held N seconds with the freeze markups on;
+     card — a Chalkline title card, held N seconds.
+   ffmpeg does the cutting/overlaying at full source resolution; the PNGs ride
+   inside the .bat as base64. The .bat finds the match by name in the usual
+   folders (or you drag it on), reads the real frame rate with ffprobe, and
+   writes finished files to your export folder. */
+function titleCardPNGb64(m,i,total){
+  const W=vid.videoWidth, H=vid.videoHeight;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H;
+  paintTitleCard(cv.getContext('2d'),W,H,m,i,total);
+  return cv.toDataURL('image/png').split(',')[1];
+}
+/* transparent PNG of a given shape list (alpha 1) plus the caption */
+function shapesPNGb64(m,shapes){
+  const W=vid.videoWidth, H=vid.videoHeight;
+  const cv=document.createElement('canvas'); cv.width=W; cv.height=H; const c=cv.getContext('2d');
+  shapes.forEach(s=>s._alpha=1);
+  if(shapes.length) paint(c,W,H,shapes,null);
+  paintCaption(c,W,H,m.caption);
+  return cv.toDataURL('image/png').split(',')[1];
+}
+/* shapes that show while the footage MOVES: "keep" shows for the whole clip,
+   "linger" shows for N seconds after its beat. Freeze-only shapes belong to the
+   freeze pieces. Returns [{from,to,shapes}] in source time, identical windows merged. */
+function motionWindows(m,start,end){
+  const wins=new Map();
+  (m.shapes||[]).forEach(s=>{
+    const keep=!!s.keep, ling=+s.linger||0;
+    if(!keep && ling<=0) return;
+    const t0=Number.isFinite(s.t)?s.t:m.t;
+    const a=Math.max(start,t0), b=keep?end:Math.min(end,t0+ling);
+    if(b-a<0.05) return;
+    const k=a.toFixed(2)+'|'+b.toFixed(2);
+    if(!wins.has(k)) wins.set(k,{from:a,to:b,shapes:[]});
+    wins.get(k).shapes.push(s);
+  });
+  return [...wins.values()];
+}
+function clipPieces(m){
+  const start=clipStart(m), end=clipEnd(m), holdV=+($('#hold')||{}).value||0;
+  const freezes=freezeStops(m,start,end,holdV).filter(st=>st.hold>0);
+  const zones=(Array.isArray(m.slow)?m.slow:[])
+    .map(z=>({from:Math.max(start,+z.from),to:Math.min(end,+z.to),rate:+z.rate||0.25}))
+    .filter(z=>z.to-z.from>0.05 && z.rate>0 && z.rate<1);
+  const cuts=new Set([start,end]); freezes.forEach(f=>cuts.add(f.t)); zones.forEach(z=>{cuts.add(z.from);cuts.add(z.to);});
+  const pts=[...cuts].sort((a,b)=>a-b), pieces=[];
+  for(let i=0;i<pts.length-1;i++){
+    const a=pts[i], b=pts[i+1];
+    if(b-a>0.05){ const mid=(a+b)/2; const z=zones.find(q=>mid>=q.from&&mid<=q.to); pieces.push({type:'mov',a,b,rate:z?z.rate:1}); }
+    const f=freezes.find(q=>Math.abs(q.t-b)<1e-6); if(f) pieces.push({type:'frz',t:f.t,hold:f.hold});
+  }
+  return {start,end,holdV,pieces,windows:motionWindows(m,start,end)};
+}
+/* audio speed chain for a slow-mo rate: atempo only accepts 0.5..2, so halve
+   repeatedly then finish with the remainder (0.25 -> 0.5,0.5 ; 0.1 -> 0.5,0.5,0.5,0.8) */
+function atempoChain(rate){
+  const steps=[]; let rem=rate; while(rem<0.5){ steps.push(0.5); rem*=2; }
+  if(Math.abs(rem-1)>1e-3) steps.push(+rem.toFixed(3));
+  return steps.map(s=>'atempo='+s).join(',');
+}
+function build4KBat(clips, wantReel){
+  if(!clips.length) return toast('No clips to export');
+  if(!vid.videoWidth) return toast('Load the match first');
+  const name=S.videoName||'match.mp4';
+  const outDir=(($('#h264out')||{}).value||'').trim().replace(/[\\/]+$/,'');
+  const cardSecs=Math.max(1,+(($('#titlesecs')||{}).value)||5), cards=!!(($('#titlecards')||{}).checked);
+  const enc='-r %R% -c:v libx264 -crf 18 -preset veryfast -pix_fmt yuv420p -c:a aac -b:a 192k -ar 48000 -ac 2 -video_track_timescale 15360';
+  const pngs=[], cmds=[], reelParts=[], outputs=[];
+  let pngN=0; const pngCache=new Map();
+  const addPNG=(key,make)=>{ if(pngCache.has(key)) return pngCache.get(key); const f=`p${++pngN}.png`; pngs.push({file:f,b64:make()}); pngCache.set(key,f); return f; };
+  clips.forEach((m,ci)=>{
+    const plan=clipPieces(m), parts=[];
+    const out=safe(m.label)+'-'+Math.round(m.t)+'s-4K.mp4';
+    cmds.push(`echo === Clip ${ci+1} of ${clips.length}: ${m.label} ===`);
+    if(wantReel && cards){
+      const f=addPNG('card'+m.id, ()=>titleCardPNGb64(m,ci,clips.length)), z=`c${ci}_card.mp4`;
+      cmds.push(`"%FF%" -y -loop 1 -i "%W%\\${f}" -f lavfi -i anullsrc=r=48000:cl=stereo -filter_complex "[0]format=yuv420p[v]" -map "[v]" -map 1:a -t ${cardSecs} ${enc} "%W%\\${z}"`);
+      reelParts.push(z);
+    }
+    plan.pieces.forEach((p,k)=>{
+      const z=`c${ci}_p${k}.mp4`;
+      if(p.type==='frz'){
+        const f=addPNG('frz'+m.id+'@'+p.t.toFixed(2), ()=>markupPNGb64(m,p.t)), fr=`c${ci}_f${k}.png`;
+        cmds.push(`echo   freeze at ${p.t.toFixed(1)}s (${p.hold}s)`);
+        cmds.push(`"%FF%" -y -ss ${p.t.toFixed(3)} -i "%SRC%" -frames:v 1 "%W%\\${fr}"`);
+        cmds.push(`"%FF%" -y -loop 1 -i "%W%\\${fr}" -i "%W%\\${f}" -f lavfi -i anullsrc=r=48000:cl=stereo -filter_complex "[0][1]overlay=0:0,format=yuv420p[v]" -map "[v]" -map 2:a -t ${(+p.hold).toFixed(2)} ${enc} "%W%\\${z}"`);
+      } else {
+        /* overlays that intersect this piece: motion windows + caption for the whole piece */
+        const ovs=[];
+        plan.windows.forEach(w=>{ const a=Math.max(w.from,p.a), b=Math.min(w.to,p.b); if(b-a>0.05)
+          ovs.push({file:addPNG('win'+m.id+'@'+w.from.toFixed(2)+'-'+w.to.toFixed(2), ()=>shapesPNGb64(m,w.shapes)), a, b}); });
+        if(m.caption && !ovs.length) ovs.push({file:addPNG('cap'+m.id, ()=>shapesPNGb64(m,[])), a:p.a, b:p.b});
+        const inputs=ovs.map(o=>`-i "%W%\\${o.file}"`).join(' ');
+        let vf=`[0:v]setpts=(PTS-STARTPTS)/${p.rate}[v0]`, last='v0';
+        ovs.forEach((o,i)=>{ const f1=((o.a-p.a)/p.rate).toFixed(3), f2=((o.b-p.a)/p.rate).toFixed(3);
+          vf+=`;[${last}][${i+1}:v]overlay=0:0:enable='between(t,${f1},${f2})'[v${i+1}]`; last='v'+(i+1); });
+        vf+=`;[${last}]format=yuv420p[v]`;
+        const af = p.rate===1 ? '[0:a]asetpts=PTS-STARTPTS[a]' : `[0:a]asetpts=PTS-STARTPTS,${atempoChain(p.rate)}[a]`;
+        cmds.push(`echo   footage ${p.a.toFixed(1)}-${p.b.toFixed(1)}s${p.rate!==1?' at '+p.rate+'x':''}`);
+        cmds.push(`"%FF%" -y -ss ${p.a.toFixed(3)} -to ${p.b.toFixed(3)} -i "%SRC%" ${inputs} -filter_complex "${vf};${af}" -map "[v]" -map "[a]" ${enc} "%W%\\${z}"`);
+      }
+      parts.push(z); reelParts.push(z);
+    });
+    cmds.push(`(${parts.map(f=>`echo file '${f}'`).join(' & ')}) > "%W%\\list${ci}.txt"`);
+    cmds.push(`"%FF%" -y -f concat -safe 0 -i "%W%\\list${ci}.txt" -c copy "%OUTDIR%\\${out}"`);
+    outputs.push(out);
+  });
+  let reelName='';
+  if(wantReel && clips.length){
+    reelName='chalkline-reel-4K-'+stamp()+'.mp4';
+    cmds.push('echo === Stitching the reel ===');
+    cmds.push(`(${reelParts.map(f=>`echo file '${f}'`).join(' & ')}) > "%W%\\reel.txt"`);
+    cmds.push(`"%FF%" -y -f concat -safe 0 -i "%W%\\reel.txt" -c copy "%OUTDIR%\\${reelName}"`);
+  }
+  const cand=[ '%~dp0.', outDir, '%USERPROFILE%\\Dropbox\\KIDS SPORTS VIDEOS', 'E:\\Chalkline', 'E:' ]
+    .filter(Boolean).map(d=>d.replace(/[\\/]+$/,''));
+  const head=[
+    '@echo off','setlocal','cd /d "%~dp0"','title Chalkline - 4K clips with markups',
+    'set "SRC=%~1"',
+    ...cand.map(d=>`if not defined SRC if exist "${d}\\${name}" set "SRC=${d}\\${name}"`),
+    'if "%SRC%"=="" set "SRC="',
+    `if not defined SRC ( echo. & echo Could not find "${name}". Drag your MATCH VIDEO onto this file, or put this file next to it. & echo. & pause & exit /b 1 )`,
+    outDir ? `set "OUTDIR=${outDir}"` : 'set "OUTDIR=%~dp0."',
+    'if not exist "%OUTDIR%" mkdir "%OUTDIR%" 2>nul',
+    'set "W=%TEMP%\\chalkline4k"',
+    'if exist "%W%" rd /s /q "%W%"',
+    'mkdir "%W%" 2>nul',
+    'set "FF="',
+    'where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
+    'if not defined FF if exist "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe" set "FF=%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe"',
+    'if not defined FF (',
+    '  echo Installing ffmpeg once, via Windows winget - this can take a minute...',
+    '  winget install --id Gyan.FFmpeg -e --accept-package-agreements --accept-source-agreements',
+    '  where ffmpeg >nul 2>nul && set "FF=ffmpeg"',
+    '  if not defined FF if exist "%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe" set "FF=%LOCALAPPDATA%\\Microsoft\\WinGet\\Links\\ffmpeg.exe"',
+    ')',
+    'if not defined FF ( echo Could not find or install ffmpeg. Install once from https://ffmpeg.org then run again. & pause & exit /b 1 )',
+    'set "FP=%FF:ffmpeg=ffprobe%"',
+    'set "R="',
+    'for /f "usebackq delims=" %%Q in (`powershell -NoProfile -Command "$s=(& \'%FP%\' -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 \'%SRC%\'); $p=$s.Trim().Split(\'/\'); [math]::Round([double]$p[0]/[double]$p[1])"`) do set "R=%%Q"',
+    'if not defined R set "R=30"',
+    'echo Source: "%SRC%"  (%R% fps)',
+    'echo Output: "%OUTDIR%"',
+    'echo Unpacking markups...',
+    'powershell -NoProfile -ExecutionPolicy Bypass -Command "$p=\'%~f0\'; $w=\'%W%\'; $L=Get-Content -LiteralPath $p; for($i=0;$i -lt $L.Count;$i++){ $mm=[regex]::Match($L[$i],\'^#PNG:(.+)#$\'); if($mm.Success){ $n=$mm.Groups[1].Value; $sb=New-Object Text.StringBuilder; $i++; while($i -lt $L.Count -and $L[$i] -ne \'#END#\'){ [void]$sb.Append($L[$i].Trim()); $i++ }; [IO.File]::WriteAllBytes((Join-Path $w $n),[Convert]::FromBase64String($sb.ToString())) } }"',
+    'echo Building at full resolution - a long reel can take a while. Leave this window open until Done.',
+    ''
+  ];
+  const tail=[
+    'rd /s /q "%W%" 2>nul',
+    'echo.','echo Done. Saved to "%OUTDIR%":',
+    ...outputs.map(o=>`echo   ${o}`),
+    ...(reelName?[`echo   ${reelName}`]:[]),
+    'echo (To keep full quality on WhatsApp, send as a Document, not a video.)',
+    'pause','exit /b',''
+  ];
+  const blocks=[]; pngs.forEach(p=>blocks.push('#PNG:'+p.file+'#', p.b64, '#END#'));
+  const bat=head.concat(cmds, tail, blocks).join('\r\n');
+  const fname = wantReel ? 'make-all-clips-4K.bat' : 'make-'+safe(clips[0].label)+'-4K.bat';
+  download(new Blob([bat],{type:'application/octet-stream'}), fname);
+  clips.forEach(c=>{ c.exported=Date.now(); }); save(true); renderClips();
+  toast('Saved '+fname+' — double-click it (or drag your match video onto it)');
+  return bat;
+}
+function make4KClipBat(m){ if(!m) return toast('Pick a clip first'); return build4KBat([m], false); }
+function make4KAllBat(){
+  const list=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  if(!list.length) return toast('No clips to export');
+  return build4KBat(list, true);
+}
 /* TRUE 4K clip with markups burned in — bypasses the browser canvas entirely.
    ffmpeg (in a self-installing .bat) cuts the full-res footage from the source and
    overlays Chalkline-rendered markup PNGs, holding the freeze frame with the markup
    on it. One file: drag the match video onto it (or drop it in the match folder).
    The markup PNGs ride along inside the .bat as base64 and are unpacked at run. */
-function make4KClipBat(m){
+function make4KClipBat_v1(m){
   if(!m) return toast('Pick a clip first');
   if(!vid.videoWidth) return toast('Load the match first');
   const name=S.videoName||'match.mp4';
@@ -5699,6 +5875,7 @@ $('#reelbtn').addEventListener('click', compileReel);
 $('#makeh264').addEventListener('click', makeH264Copy);
 $('#export4k')&&$('#export4k').addEventListener('click', ()=>make4KClipBat(curClip));
 $('#vfprobe')&&$('#vfprobe').addEventListener('click', ()=>VF.probe(false));
+$('#export4kall')&&$('#export4kall').addEventListener('click', make4KAllBat);
 if($('#h264test')){
   const relabel=()=>{ $('#makeh264').textContent = $('#h264test').checked ? 'Save the 60-second TEST converter (.bat)' : 'Save the converter (.bat)'; };
   $('#h264test').addEventListener('change', relabel); relabel();
