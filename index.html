@@ -95,6 +95,17 @@ button{cursor:pointer;border:none;background:none}
    instead of spilling under the next pane */
 .colhead.mkhead{flex-wrap:wrap;row-gap:6px}
 .colhead.mkhead .eyebrow{flex:0 0 100%}
+/* a label whose control sits UNDER its eyebrow text (Show / Order / New clips).
+   The generic .colhead .eyebrow rule clips overflow on one line, which was
+   swallowing the <select> and leaving a bare "_" — so these stack instead. */
+.colhead .stack{display:flex;flex-direction:column;gap:4px;flex:1;min-width:0;overflow:visible;white-space:normal}
+.colhead .stack select,.colhead .stack input{width:100%;min-width:0;box-sizing:border-box;margin:0}
+/* Markup header: an even 3-up grid instead of a ragged wrap */
+.mkgrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;width:100%}
+.mkgrid .tbtn{width:100%;padding:6px 4px;text-align:center;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mkgrid .span2{grid-column:span 2}
+.mkgrid .span3{grid-column:span 3}
+.mkgrid .span6{grid-column:1 / -1}
 /* an iOS scroll layer with no background of its own paints white, not the
    colour it looks like it inherits — so every scroller states its own */
 .scroll{overflow:auto;flex:1;min-height:0;background:var(--pitch)}
@@ -566,11 +577,11 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         <button class="tbtn" id="loadmarks">Open</button>
       </div>
       <div class="colhead" style="gap:8px">
-        <label class="eyebrow" style="flex:1;white-space:nowrap">Show
-          <select id="playerfilter" style="margin-top:4px"><option value="__all">All clips</option></select>
+        <label class="eyebrow stack">Show
+          <select id="playerfilter" title="Only list clips for one player, or the team"><option value="__all">All clips</option></select>
         </label>
-        <label class="eyebrow" style="flex:1;white-space:nowrap">Order
-          <select id="clipsort" style="margin-top:4px" title="How the clip list is ordered and grouped">
+        <label class="eyebrow stack">Order
+          <select id="clipsort" title="How the clip list is ordered and grouped">
             <option value="time">Match order</option>
             <option value="player">By player</option>
             <option value="category">By category</option>
@@ -579,8 +590,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </label>
       </div>
       <div class="colhead" style="gap:8px">
-        <label class="eyebrow" style="flex:1;white-space:nowrap">New clips are
-          <input type="text" list="playernames" id="defplayer" placeholder="Team" style="margin-top:4px">
+        <label class="eyebrow stack">New clips are tagged to
+          <input type="text" list="playernames" id="defplayer" placeholder="Team">
         </label>
       </div>
       <datalist id="playernames"></datalist>
@@ -768,15 +779,17 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
 
     <div class="col">
       <div class="colhead mkhead"><span class="eyebrow">Markup</span>
-        <button class="tbtn" id="trackbtn" title="Auto-follow the player under the selected Ground ring">Track</button>
-        <button class="tbtn" id="flipbtn" title="Flip a selected curved or over-the-top arrow to bow the other way">⤢ Flip</button>
-        <button class="tbtn" id="planebtn" title="Tilt a selected curved arrow into a 3D plane — going away, coming toward you, or flat">◈ Plane</button>
-        <button class="tbtn" id="undomarks">Undo</button>
-        <button class="tbtn" id="clearbtn">Clear</button>
-        <select class="tbtn" id="burnmode" title="How long markups show by default: only on the freeze frame, or the whole clip">
-          <option value="freeze">Shows: on freeze</option>
-          <option value="all">Shows: whole clip</option>
-        </select>
+        <div class="mkgrid">
+          <button class="tbtn span3" id="undomarks" title="Undo the last markup change">↶ Undo</button>
+          <button class="tbtn span3" id="clearbtn" title="Remove every markup on this clip">Clear</button>
+          <button class="tbtn span2" id="trackbtn" title="Auto-follow the player under the selected Ground ring">Track</button>
+          <button class="tbtn span2" id="flipbtn" title="Flip a selected curved or over-the-top arrow to bow the other way">⤢ Flip</button>
+          <button class="tbtn span2" id="planebtn" title="Tilt a selected curved arrow into a 3D plane — going away, coming toward you, or flat">◈ Plane</button>
+          <select class="tbtn span6" id="burnmode" title="How long markups show by default: only on the freeze frame, or the whole clip">
+            <option value="freeze">Markups show: on the freeze</option>
+            <option value="all">Markups show: whole clip</option>
+          </select>
+        </div>
       </div>
       <div class="scroll tools">
         <div class="toolgrid" id="toolgrid"></div>
@@ -813,7 +826,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
     <div class="col">
       <div class="colhead"><span class="eyebrow">Clip</span></div>
       <div class="scroll tools">
-        <label class="field"><span class="eyebrow">Category — change any time to re-tag</span>
+        <label class="field"><span class="eyebrow" title="Change any time to re-tag the clip">Category</span>
           <select id="recat" disabled><option>Pick a clip first</option></select>
         </label>
 
@@ -867,21 +880,33 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           </div>
         </div>
         <button class="btn small" id="applynotes" type="button" style="width:100%;margin-top:2px">＋ Apply to clip</button>
-        <div class="hint">Drops this text onto the clip as a movable text box (same as drawing a Text mark, but typed here). Drag to reposition, double-click on the clip to edit. Apply again to update it.</div>
+        <div class="hint">Places the text on the clip as a movable box. Drag to move; double-click on the clip to edit; Apply again to update.</div>
 
         <div class="prompt" id="askprompt">Pick a clip to get a question to ask.</div>
 
+        <!-- ===== EXPORT: the recommended path first, everything else tucked away ===== -->
         <div class="sep"></div>
-        <div class="eyebrow" style="margin-bottom:5px">Export video</div>
+        <div class="eyebrow" style="margin-bottom:5px">Export — 4K with markups (recommended)</div>
+        <button class="btn primary" id="export4k">This clip — 4K with markups (.bat)</button>
+        <button class="btn" id="export4kall" style="margin-top:6px">All clips + titled reel — one .bat</button>
+        <label class="field" style="margin-top:8px"><span class="eyebrow">Finished files go to</span>
+          <input type="text" id="h264out" spellcheck="false" placeholder="e.g. E:\Chalkline" value="C:\Users\ChadFerguson\Dropbox\KIDS SPORTS VIDEOS">
+        </label>
+        <div class="hint" id="export4khint">Everything burned in at full resolution — freeze frames with their markups, markups that stay on during play, slow-mo, captions, title cards. Built by ffmpeg outside the browser, so it never goes black. <b>Just double-click the file</b>: it finds your match by name (or drag the video onto it), reads the true frame rate, and saves to the folder above. First run installs ffmpeg. On WhatsApp send as a <b>Document</b> to keep the quality.</div>
+
+        <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Export in the browser</div>
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px">
+          <button class="btn small" id="vfprobe" title="Checks whether this PC can hand 4K frames to the browser for a one-click export">Test one-click 4K</button>
+          <span class="hint" id="vfstatus" style="margin:0;flex:1">Runs by itself the first time a match plays.</span>
+        </div>
         <div class="pairs">
           <label class="field"><span class="eyebrow">Resolution</span>
             <select id="exportres">
               <option value="480">480p</option>
               <option value="720">720p</option>
               <option value="1080">1080p</option>
-              <option value="source" selected>Match source — as seen, with markups</option>
-              <option value="direct">Full res, no markups (one click)</option>
-              <option value="ffmpeg">Full-res .bat (double-click — true original quality)</option>
+              <option value="source" selected>Match source</option>
             </select>
           </label>
           <label class="field"><span class="eyebrow">Frame rate</span>
@@ -894,7 +919,31 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             </select>
           </label>
         </div>
-        <div class="hint">Higher settings mean bigger files. <b>Match source</b> keeps the footage resolution. <b>⌁ ffmpeg cut</b> makes Export clip / the reel write ffmpeg commands instead — lossless, source resolution, no re-record, but markup isn't burned in.</div>
+        <button class="btn" id="exportclip">Export clip</button>
+        <button class="btn" id="exportpng">Export still</button>
+        <button class="btn" id="snapstill">Snap still from screen</button>
+        <div class="hint" id="snaphint">If the one-click test says ✗, these come out black on this PC — use the 4K .bat above instead. Snap still grabs what’s on screen (asks to share this tab once).</div>
+        <div style="margin-top:8px">
+          <div class="eyebrow" style="margin-bottom:4px">Save browser exports to</div>
+          <button class="btn small" id="exportdir" type="button">Choose folder… (now: browser downloads)</button>
+          <div class="hint" id="exportdirhint">Pick a folder with space (E:) and browser exports save straight there.</div>
+        </div>
+
+        <div class="sep"></div>
+        <div class="eyebrow" style="margin-bottom:5px">Reel</div>
+        <label class="field"><span class="eyebrow">Reel includes</span>
+          <select id="reelkind">
+            <option value="all">All clips</option>
+            <option value="highlight">★ Highlights only</option>
+            <option value="learning">🎓 Learning only</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
+          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card before each clip, held for
+          <input type="number" id="titlesecs" value="5" min="1" max="15" step="1" style="width:52px"> s
+        </label>
+        <button class="btn" id="reelbtn">Compile clips into one video (in browser)</button>
+        <div class="hint" id="reelhint">Applies to both reel buttons. The in-browser reel plays every clip through once, so it takes as long as the reel itself; the 4K .bat above is faster and never black.</div>
 
         <div class="sep"></div>
         <div class="eyebrow" style="margin-bottom:5px">Export audio</div>
@@ -913,68 +962,33 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <span class="eyebrow">Music volume</span>
           <input type="range" id="musicvol" min="0" max="100" value="35" style="width:100%">
         </label>
-        <div class="hint">Voiceover records live as the clip plays — use headphones so the mic doesn't pick up the audio. Applies to Export clip and the reel, not the ffmpeg cuts.</div>
+        <div class="hint">Voiceover records live as the clip plays — use headphones. Applies to the in-browser exports, not the .bat.</div>
 
-        <div class="sep"></div>
-        <div class="eyebrow" style="margin-bottom:5px">Save exports to</div>
-        <button class="btn small" id="exportdir" type="button">Choose folder… (now: browser downloads)</button>
-        <div class="hint" id="exportdirhint">Pick your microSD folder and clips, stills and reels save straight there — otherwise they go to your browser's download folder.</div>
+        <details class="advanced" style="margin-top:8px">
+          <summary title="Older and special-purpose exports">Advanced exports</summary>
+          <div style="padding:8px 12px 12px">
+            <div class="eyebrow" style="margin-bottom:5px">Clean cuts, no markups</div>
+            <button class="btn small" id="exportdirect" type="button">This clip — full res, no markups (one click)</button>
+            <button class="btn small" id="exportffcut" type="button" style="margin-top:6px">This clip — ffmpeg cut (.bat)</button>
+            <button class="btn small" id="exportall" type="button" style="margin-top:6px">All clips + reel — clean cuts (.bat)</button>
+            <button class="btn small" id="exportbatch" type="button" style="margin-top:6px">Cut list per player</button>
+            <div class="hint" id="batinfo">Source-resolution cuts with no telestration. The .bat files go in the <b>same folder as the match</b> and are double-clicked.</div>
 
-        <button class="btn primary" id="exportclip">Export clip</button>
-        <button class="btn" id="exportpng">Export still</button>
-        <button class="btn" id="snapstill">Snap still from screen</button>
-        <div class="hint" id="snaphint">Use this if Export still is blank (H.265 footage). It grabs what’s on screen, so you’ll be asked to share this tab once. Saves to the same place; lower resolution than converting to H.264.</div>
-
-        <div class="sep"></div>
-        <div class="eyebrow" style="margin-bottom:5px">⚑ Exports coming out black? Do this once</div>
-        <label class="field" style="margin-bottom:6px"><span class="eyebrow">Copy quality</span>
-          <select id="h264res">
-            <option value="source" selected>Match source — full res</option>
-            <option value="1080">1080p — safest for black exports</option>
-            <option value="720">720p — smaller &amp; faster</option>
-          </select>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px">
-          <input type="checkbox" id="h264test" style="width:auto"> Just a 60-second test sample (to check a setting works before converting the whole match)
-        </label>
-        <label class="field" style="margin-bottom:6px"><span class="eyebrow">Save copies into this folder</span>
-          <input type="text" id="h264out" spellcheck="false" placeholder="e.g. C:\Users\You\Dropbox\KIDS SPORTS VIDEOS" value="C:\Users\ChadFerguson\Dropbox\KIDS SPORTS VIDEOS">
-        </label>
-        <button class="btn primary" id="makeh264">Save the converter (.bat)</button>
-        <div class="hint" id="h264hint">Your footage is <b>4K</b>, which this PC decodes onto a hardware layer the browser can’t read — so canvas exports record black. Making a browser-readable copy fixes it. <b>Full res may still come out black</b> (the 4K is the likely cause); <b>1080p is the safe bet.</b> Not sure? Tick <b>“60-second test sample,”</b> save the test converter, drag one match on, then load the tiny <code>-TEST</code> copy and export a clip — if it shows footage, that setting works, so untick and convert for real. This saves <b>one reusable converter</b> — keep it on your Desktop or in Dropbox. <b>Drag match video(s) onto it</b> (or drop it in a folder and double-click); copies go to the folder above. First run installs ffmpeg via winget. <b>Let it run to “Done.”</b> — a full match takes many minutes; closing early just leaves a <code>.part</code> file. Then <b>load a copy</b>, choose <b>Keep my clips</b>, and exports work with your markups. Tags stay aligned: the copy keeps the same timeline.</div>
-
-        <div class="sep"></div>
-        <div class="eyebrow">Whole game reel</div>
-        <label class="field"><span class="eyebrow">Reel includes</span>
-          <select id="reelkind">
-            <option value="all">All clips</option>
-            <option value="highlight">★ Highlights only</option>
-            <option value="learning">🎓 Learning only</option>
-          </select>
-        </label>
-        <label style="display:flex;align-items:center;gap:8px;font-size:13px">
-          <input type="checkbox" id="titlecards" checked style="width:auto"> Title card before each clip, held for
-          <input type="number" id="titlesecs" value="5" min="1" max="15" step="1" style="width:52px"> s
-        </label>
-        <button class="btn" id="reelbtn">Compile clips into one video</button>
-        <div class="hint" id="reelhint">Plays every clip through once to record it, so it takes about as long as the reel itself.</div>
-
-        <div class="sep"></div>
-        <div class="eyebrow" style="margin-bottom:5px">True 4K clip WITH markups (for 4K footage)</div>
-        <div style="display:flex;gap:8px;align-items:center;margin-bottom:6px">
-          <button class="btn small" id="vfprobe" title="Checks whether this PC can hand 4K frames to the browser for a one-click export">Test one-click 4K capture</button>
-          <span class="hint" id="vfstatus" style="margin:0;flex:1">Runs by itself the first time a match plays.</span>
-        </div>
-        <button class="btn primary" id="export4k">This clip in 4K + markups — double-click .bat</button>
-        <button class="btn" id="export4kall" style="margin-top:6px">All clips in 4K + a titled reel — one .bat</button>
-        <div class="hint" id="export4khint">Full-resolution clips with everything burned in — freeze frames with their markups, markups that stay on during play, slow-mo sections, captions, and (for the reel) title cards — built by ffmpeg outside the browser, so the 4K black-canvas problem never applies. <b>Just double-click the <code>.bat</code></b>: it finds your match by name in the usual folders (or drag the video onto it), reads the true frame rate, and saves finished files to the <b>“Save copies into this folder”</b> location above. Your markups ride inside the file, so it’s one download. First run installs ffmpeg via winget. Send results on WhatsApp as a <b>Document</b> to keep the quality.</div>
-
-        <div class="sep"></div>
-        <div class="eyebrow" style="margin-bottom:5px">Full-res clips (true original quality)</div>
-        <button class="btn primary" id="exportall">Make all clips — double-click .bat</button>
-        <div class="hint" id="batinfo"><b>Windows, ultra-simple:</b> saves a <code>.bat</code> (plus a session backup). Put the <code>.bat</code> in the <b>same folder as your match video</b> and double-click it — it cuts every clip at full source resolution, visually lossless, and stitches a reel. First run installs ffmpeg for you (via winget); after that it just runs. No terminal.</div>
-        <button class="btn" id="exportbatch">Cut list per player (advanced)</button>
-        <div class="hint">Writes one plain cut list per group (Ethan, team, …) plus its join command. For running by hand where the match file is.</div>
+            <div class="eyebrow" style="margin:12px 0 5px">Make a browser-readable copy of the match</div>
+            <label class="field" style="margin-bottom:6px"><span class="eyebrow">Copy quality</span>
+              <select id="h264res">
+                <option value="1080" selected>1080p</option>
+                <option value="720">720p</option>
+                <option value="source">Match source</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:6px">
+              <input type="checkbox" id="h264test" style="width:auto"> 60-second test sample only
+            </label>
+            <button class="btn small" id="makeh264" type="button">Save the converter (.bat)</button>
+            <div class="hint" id="h264hint">Only needed if you want the <i>in-browser</i> exports to work on 4K footage: a 1080p copy reads back fine. Drag match videos onto the converter; copies go to the folder above. Load a copy and choose <b>Keep my clips</b>.</div>
+          </div>
+        </details>
 
         <div class="hint">
           <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>,</kbd><kbd>.</kbd> slower/faster · <kbd>1</kbd>–<kbd>8</kbd> tools ·
@@ -1187,7 +1201,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v196';
+const APP_VERSION = 'v197';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1737,7 +1751,7 @@ async function videoReadablePlaying(){
   const wasPaused=vid.paused, wasMuted=vid.muted, wasTime=vid.currentTime, wasRate=vid.playbackRate;
   try{
     vid.muted=true; vid.playbackRate=1;
-    await vid.play().catch(()=>{});
+    await Promise.race([vid.play().catch(()=>{}), new Promise(r=>setTimeout(r,2000))]);   /* a stalled element must not hang the export */
     await new Promise(r=>setTimeout(r,220));          /* let a few real playing frames render */
     const p=document.createElement('canvas'); p.width=48; p.height=27;
     const pc=p.getContext('2d',{willReadFrequently:true});
@@ -5201,12 +5215,18 @@ const VF={ on:false, proc:null, reader:null, latest:null, pumping:false, probing
       if(!this.supported()){ setStatus('unsupported'); return 'unsupported'; }
       if(!vid.videoWidth){ if(!silent) toast('Load the match first'); return S.vfCap; }
       const wasPaused=vid.paused, wasMuted=vid.muted;
-      vid.muted=true; await vid.play().catch(()=>{});
+      /* play() itself can hang on a stalled element, so it is raced too */
+      vid.muted=true; await Promise.race([vid.play().catch(()=>{}), new Promise(r=>setTimeout(r,2000))]);
       const st=vid.captureStream?vid.captureStream():vid.mozCaptureStream();
       const tr=st.getVideoTracks()[0];
+      if(!tr){ setStatus('fail'); return 'fail'; }
       const reader=new MediaStreamTrackProcessor({track:tr}).readable.getReader();
       let last=null, max=0;
-      for(let i=0;i<12;i++){ const {value,done}=await reader.read(); if(done) break; if(last) last.close(); last=value; }
+      /* a stalled stream (paused video, or a GPU that never delivers frames) would
+         otherwise hang here forever and leave every later probe thinking one is
+         still running — so each read races a short timeout */
+      const readT=ms=>Promise.race([reader.read(), new Promise(r=>setTimeout(()=>r({timeout:true}),ms))]);
+      for(let i=0;i<12;i++){ const r=await readT(1500); if(r.timeout||r.done) break; if(last) last.close(); last=r.value; }
       if(last){
         const p=document.createElement('canvas'); p.width=48; p.height=27;
         const pc=p.getContext('2d',{willReadFrequently:true}); pc.drawImage(last,0,0,48,27);
@@ -5609,6 +5629,9 @@ async function exportClip(){
      instead, so the clip exports exactly as seen: footage WITH the markups. */
   /* if VideoFrame capture passed its probe, the canvas path works at 4K — skip the
      screen-capture fallback entirely */
+  /* the probe already proved this PC can't hand 4K frames to the browser: don't
+     record a black file — hand over the .bat that builds the real thing */
+  if(S.vfCap==='fail'){ toast('This PC can’t export 4K in the browser — making the 4K .bat instead'); return make4KClipBat(curClip); }
   if(S.vfCap!=='ok' && !(await videoReadablePlaying())) return recordClipScreen(curClip);
   const target = await exportTarget();   /* resolve now, while the click still counts as a gesture */
   await VF.start();                        /* feed the canvas from VideoFrames when this PC needs it */
@@ -5658,11 +5681,19 @@ async function exportClip(){
        fine. Keep the last MOVING frame in an offscreen canvas and paint THAT during
        freezes, instead of the (black) paused video. */
     const froze=document.createElement('canvas'); froze.width=cv.width; froze.height=cv.height;
-    const fx=froze.getContext('2d'); let frozeReady=false;
+    const fx=froze.getContext('2d',{willReadFrequently:true}); let frozeReady=false;
+    let blackChk=0, blackAbort=false;
     const frame=()=>{
       const srcF=VF.src();                                  /* VideoFrame when capture works, else the element */
       c.drawImage(srcF,0,0,cv.width,cv.height);
       fx.drawImage(srcF,0,0,froze.width,froze.height); frozeReady=true;   /* stash latest moving frame */
+      /* black-frame guard: if the first dozen frames read back black, this PC
+         can't do it in the browser — bail now instead of recording a black clip */
+      if(++blackChk<=12){
+        const d=fx.getImageData(0,0,Math.min(froze.width,64),Math.min(froze.height,36)).data; let mx=0;
+        for(let i=0;i<d.length;i+=4) mx=Math.max(mx,d[i],d[i+1],d[i+2]);
+        if(mx>=10) blackChk=99; else if(blackChk===12) blackAbort=true;   /* flag it; the async flow throws */
+      }
       const sh=shapesAt(vid.currentTime);
       if(sh.length) paint(c,cv.width,cv.height,sh,null);
       paintCaption(c,cv.width,cv.height,curClip.caption);
@@ -5685,12 +5716,13 @@ async function exportClip(){
       await new Promise(res=>{ (function f(){
         const wr=rateAt(vid.currentTime); if(Math.abs(vid.playbackRate-wr)>1e-3) vid.playbackRate=wr;
         frame();
-        (vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); });
+        (blackAbort||vid.currentTime>=to||vid.ended)?res():requestAnimationFrame(f); })(); });
       vid.pause(); };
 
     const stops=freezeStops(curClip, start, end, hold);
     for(const st of stops){ await playTo(st.t); await seekTo(st.t); await holdFor(st.hold); }
     await playTo(end);
+    if(blackAbort){ const e=new Error('black export'); e.blackExport=true; throw e; }
     rec.stop();
     await new Promise(r=>rec.onstop=r);
 
@@ -5700,6 +5732,13 @@ async function exportClip(){
     toast('Clip exported'); markExported(curClip);
   } catch(err){
     try{ rec.state!=='inactive' && rec.stop(); }catch(e){}
+    if(err && err.blackExport){
+      /* remember the verdict so next time we go straight to the .bat */
+      S.vfCap='fail'; save(true); const el=$('#vfstatus'); if(el) el.textContent='✗ This PC hides 4K frames from the browser — use the 4K .bat below for markups.';
+      toast('This PC can’t export 4K in the browser — making the 4K .bat instead');
+      setTimeout(()=>make4KClipBat(curClip), 50);
+      return;
+    }
     toast('Export failed — try the ffmpeg cut list instead');
   } finally {
     VF.stop();
@@ -5876,6 +5915,9 @@ $('#makeh264').addEventListener('click', makeH264Copy);
 $('#export4k')&&$('#export4k').addEventListener('click', ()=>make4KClipBat(curClip));
 $('#vfprobe')&&$('#vfprobe').addEventListener('click', ()=>VF.probe(false));
 $('#export4kall')&&$('#export4kall').addEventListener('click', make4KAllBat);
+/* the clean no-markup exports moved out of the Resolution dropdown into Advanced */
+$('#exportdirect')&&$('#exportdirect').addEventListener('click', ()=>recordClipDirect(curClip));
+$('#exportffcut')&&$('#exportffcut').addEventListener('click', ()=>ffmpegCutClip(curClip));
 if($('#h264test')){
   const relabel=()=>{ $('#makeh264').textContent = $('#h264test').checked ? 'Save the 60-second TEST converter (.bat)' : 'Save the converter (.bat)'; };
   $('#h264test').addEventListener('change', relabel); relabel();
