@@ -1201,7 +1201,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v197';
+const APP_VERSION = 'v198';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -5388,7 +5388,7 @@ function build4KBat(clips, wantReel){
     `if not defined SRC ( echo. & echo Could not find "${name}". Drag your MATCH VIDEO onto this file, or put this file next to it. & echo. & pause & exit /b 1 )`,
     outDir ? `set "OUTDIR=${outDir}"` : 'set "OUTDIR=%~dp0."',
     'if not exist "%OUTDIR%" mkdir "%OUTDIR%" 2>nul',
-    'set "W=%TEMP%\\chalkline4k"',
+    'set "W=%OUTDIR%\\.chalkline-work"',   /* work on the output drive, not a possibly-full C: */
     'if exist "%W%" rd /s /q "%W%"',
     'mkdir "%W%" 2>nul',
     'set "FF="',
