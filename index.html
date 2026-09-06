@@ -329,6 +329,15 @@ button{cursor:pointer;border:none;background:none}
 .trimfreeze::before{content:"";position:absolute;top:0;bottom:0;left:50%;width:2px;transform:translateX(-50%);
   background:#FFB454;box-shadow:0 0 3px rgba(0,0,0,.5);transition:width .08s,background .08s}
 .trimfreeze:hover::before,.trimfreeze.active::before{background:#fff;width:3px}
+/* hover popover on a freeze marker: add text / add markup for that freeze only */
+.frzpop{position:fixed;z-index:60;display:none;flex-direction:column;gap:5px;padding:7px 8px;
+  background:rgba(12,23,17,.97);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.45);
+  transform:translate(-50%,-100%);margin-top:-8px;min-width:150px}
+.frzpop.on{display:flex}
+.frzpop .fp{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#FFB454;text-align:center}
+.frzpop .tbtn{width:100%;text-align:left;padding:6px 9px;white-space:nowrap}
+.frzpop::after{content:"";position:absolute;left:50%;bottom:-6px;width:10px;height:10px;transform:translateX(-50%) rotate(45deg);
+  background:rgba(12,23,17,.97);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
 .freezedel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:15px;height:15px;padding:0;border:none;
   border-radius:50%;background:rgba(6,13,10,.85);color:#FFB454;font:700 12px/1 system-ui,sans-serif;cursor:pointer;
   display:flex;align-items:center;justify-content:center;pointer-events:auto;z-index:6}
@@ -703,7 +712,8 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <button class="tbtn" id="prevclip" title="Previous clip ( [ )">◄ Clip</button>
             <button class="tbtn" id="nextclip" title="Next clip ( ] )">Clip ►</button>
             <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
-            <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on</button>
+            <button class="tbtn" id="playonhere" title="Stop looping this clip and keep watching the match from where it ends">▶ Play on (this clip)</button>
+            <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on (last clip)</button>
             <button class="tbtn" id="spotbtn" title="Mark where you're up to with a star on the bar. Click the star to jump back; click Spot again while you're on it to clear.">☆ Spot</button>
             <button class="tbtn" id="resumebtn" title="Jump to your ★ spot and keep watching from there" disabled>★ Resume</button>
             <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
@@ -1203,7 +1213,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v201';
+const APP_VERSION = 'v202';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2083,7 +2093,14 @@ function applyNotesToClip(mode){
   const start=clipStart(curClip), end=clipEnd(curClip);
   const atFreeze = mode!=='clip';
   const here = vid.currentTime;
-  const t = atFreeze ? ((here>start && here<end) ? here : (curClip.t+(+S.offset||0))) : start;
+  let t = atFreeze ? ((here>start && here<end) ? here : (curClip.t+(+S.offset||0))) : start;
+  /* snap to an existing freeze point if you're within half a second of one, so a
+     slightly-off scrub doesn't spawn a second freeze right next to it */
+  if(atFreeze){
+    const near=freezeStops(curClip,start,end,+($('#hold')||{}).value||0)
+      .map(st=>st.t).sort((a,b)=>Math.abs(a-t)-Math.abs(b-t))[0];
+    if(Number.isFinite(near) && Math.abs(near-t)<=0.5) t=near;
+  }
   let s = atFreeze ? findNotesMark(t) : findNotesMark();   /* this freeze's box, or the whole-clip box */
   if(s){ s.text=txt; s.color=notesColor; delete s.w; s.t=t; if(atFreeze){ delete s.keep; s.linger=0; } else { s.keep=1; delete s.linger; } }
   else{
@@ -2439,6 +2456,19 @@ $('#playonbtn').addEventListener('click',()=>{
   vid.play().catch(()=>{});
   render();
   toast('Playing on from '+fmtClock(clipEnd(last))+' — the end of your last clip');
+});
+/* keep watching the match from the end of the clip you're on — leaves the clip
+   (no more looping) and carries on into the footage after it */
+$('#playonhere')&&$('#playonhere').addEventListener('click',()=>{
+  if(!vid.duration) return toast('Load a video first');
+  if(!curClip) return toast('Pick a clip first — or just press Play');
+  const from=clipEnd(curClip), to=Math.min(vid.duration, from+0.05);
+  closeClip();
+  clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
+  vid.currentTime=to;
+  vid.play().catch(()=>{});
+  render();
+  toast('Playing on from '+fmtClock(from)+' — the end of this clip');
 });
 /* jump straight to the markup points (cycling), paused, so you can edit them */
 $('#tomarksbtn').addEventListener('click',()=>{
@@ -3016,6 +3046,8 @@ function renderFreezeMarks(){
   pts.forEach((f,idx)=>{
     const mk=document.createElement('div'); mk.className='trimfreeze';
     mk.style.left=pos(Math.max(s,Math.min(e,f.at)))+'%'; mk.title='Freeze '+f.hold+'s';
+    mk.addEventListener('mouseenter', ()=>showFreezePop(mk,idx));
+    mk.addEventListener('mouseleave', scheduleHideFreezePop);
     mk.addEventListener('pointerdown', ev=>startFreezeDrag(idx,ev));
     mk.addEventListener('pointermove', moveFreezeDrag);
     mk.addEventListener('pointerup', endFreezeDrag);
@@ -3032,6 +3064,58 @@ function positionFreezeMark(idx){
   const host=$('#trimfreezes'); if(!host||!curClip||!freezePts(curClip)[idx]) return;
   const f=freezePts(curClip)[idx], s=clipStart(curClip), e=clipEnd(curClip);
   const mk=host.children[idx]; if(mk) mk.style.left=(((Math.max(s,Math.min(e,f.at))-trimT0)/trimSpan)*100)+'%';
+}
+/* ---- hover popover on a freeze marker: build this freeze's teaching moment ----
+   "Text" jumps to the freeze and puts the cursor in the Notes box (Apply at
+   freeze then attaches it here). "Markup" jumps to the freeze and sets new marks
+   to show on the freeze only, so whatever you draw next belongs to this moment. */
+let frzPopT=null, frzPopIdx=-1;
+function freezePopEl(){
+  let el=$('#frzpop');
+  if(el) return el;
+  el=document.createElement('div'); el.id='frzpop'; el.className='frzpop';
+  el.innerHTML='<div class="fp" id="frzpoptime"></div>'
+    +'<button type="button" class="tbtn" id="frzpoptext" title="Jump here and type notes for this freeze">＋ Text for this freeze</button>'
+    +'<button type="button" class="tbtn" id="frzpopmark" title="Jump here; new markups stay on this freeze only">✎ Markup for this freeze</button>';
+  document.body.appendChild(el);
+  el.addEventListener('mouseenter', ()=>clearTimeout(frzPopT));
+  el.addEventListener('mouseleave', scheduleHideFreezePop);
+  $('#frzpoptext').addEventListener('click', ()=>{ freezeAddText(frzPopIdx); hideFreezePop(); });
+  $('#frzpopmark').addEventListener('click', ()=>{ freezeAddMarkup(frzPopIdx); hideFreezePop(); });
+  return el;
+}
+function showFreezePop(mk,idx){
+  if(freezeDrag || !curClip) return;
+  clearTimeout(frzPopT); frzPopIdx=idx;
+  const f=freezePts(curClip)[idx]; if(!f) return;
+  const el=freezePopEl(), r=mk.getBoundingClientRect();
+  $('#frzpoptime').textContent='Freeze · '+fmtClock(f.at)+' · '+f.hold+'s';
+  el.style.left=(r.left+r.width/2)+'px'; el.style.top=(r.top)+'px';
+  el.classList.add('on');
+}
+function scheduleHideFreezePop(){ clearTimeout(frzPopT); frzPopT=setTimeout(hideFreezePop,260); }
+function hideFreezePop(){ clearTimeout(frzPopT); const el=$('#frzpop'); if(el) el.classList.remove('on'); }
+/* park the playhead exactly on a freeze so anything added now belongs to it */
+function freezeGoTo(idx){
+  const f=freezePts(curClip)[idx]; if(!f) return null;
+  clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
+  if(!vid.paused) vid.pause();
+  vid.currentTime=f.at;                       /* 'seeked' brings this freeze's notes into the box */
+  $$('#trimfreezes .trimfreeze').forEach((h,i)=>h.classList.toggle('active', i===idx));
+  render();
+  return f;
+}
+function freezeAddText(idx){
+  const f=freezeGoTo(idx); if(!f) return;
+  if(isPhone()) setPanel('markup');           /* the Clip/Notes panel lives on this side on a phone */
+  const ta=$('#clipnotes'); if(ta){ ta.scrollIntoView({block:'center'}); setTimeout(()=>ta.focus(),0); }
+  toast('Type your points, then Apply at freeze — they stay on this freeze only');
+}
+function freezeAddMarkup(idx){
+  const f=freezeGoTo(idx); if(!f) return;
+  const bm=$('#burnmode'); if(bm && bm.value!=='freeze'){ bm.value='freeze'; bm.dispatchEvent(new Event('change')); }
+  if(isPhone()) setPanel('markup');
+  toast('Pick a tool and draw — it stays on this freeze only');
 }
 function updateFreezeHoldBtns(){
   const f=freezeUnderHead(); const h = f ? f.hold : freezeHoldDefault;
