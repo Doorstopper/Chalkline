@@ -880,8 +880,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <div class="posgrid" id="notepos"></div>
           </div>
         </div>
-        <button class="btn small" id="applynotes" type="button" style="width:100%;margin-top:2px">＋ Apply to clip</button>
-        <div class="hint">Places the text on the clip as a movable box. Drag to move; double-click on the clip to edit; Apply again to update.</div>
+        <button class="btn small primary" id="applynotes" type="button" style="width:100%;margin-top:2px" title="Put the text on the frame you're paused on (or the clip's tagged moment) — it shows on the freeze like any other markup">＋ Apply at freeze</button>
+        <button class="btn small" id="applynotesclip" type="button" style="width:100%;margin-top:6px" title="Keep the text on for the whole clip">Apply to whole clip</button>
+        <div class="hint">Pause on the frame you want, type, then <b>Apply at freeze</b>. Text wraps to at most two-thirds of the picture. Drag to move; double-click on the clip to edit; Apply again to update.</div>
 
         <div class="prompt" id="askprompt">Pick a clip to get a question to ask.</div>
 
@@ -1202,7 +1203,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v199';
+const APP_VERSION = 'v200';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2064,22 +2065,39 @@ renderNotePicker();
 /* Stamp the notes box onto the clip as a real, movable/editable text mark — the
    same kind you'd draw with the Text tool, but typed here. Re-applying updates
    the box it created (keeping any manual drag) rather than stacking duplicates. */
-function applyNotesToClip(){
+/* mode 'freeze' (default): the text belongs to the freeze point — the frame you're
+   paused on if that's inside the clip, otherwise the clip's tagged moment — and
+   shows there like any other markup (on the freeze, lingering per the hold).
+   mode 'clip': anchored at the clip start and kept on for the whole clip. */
+function applyNotesToClip(mode){
   if(!curClip) return toast('Pick a clip first');
   const txt=$('#clipnotes').value.replace(/\s+$/,'');
   if(!txt.trim()) return toast('Write some notes first');
-  const start = clipStart(curClip);                        /* anchor at the clip start so it shows the whole clip */
+  const start=clipStart(curClip), end=clipEnd(curClip);
+  const atFreeze = mode!=='clip';
+  const here = vid.currentTime;
+  const t = atFreeze ? ((here>start && here<end) ? here : (curClip.t+(+S.offset||0))) : start;
   let s = findNotesMark();
-  if(s){ s.text=txt; s.color=notesColor; delete s.w; s.keep=1; s.t=start; }   /* update text/colour, keep position, stay on whole clip */
+  if(s){ s.text=txt; s.color=notesColor; delete s.w; s.t=t; if(atFreeze){ delete s.keep; s.linger=0; } else { s.keep=1; delete s.linger; } }
   else{
-    s={tool:'text', _notes:true, keep:1, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, t:start};
-    curClip.shapes.push(s);                                /* keep:1 → stays on the whole clip, not just the freeze */
+    s={tool:'text', _notes:true, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, t};
+    if(atFreeze) s.linger=0; else s.keep=1;
+    curClip.shapes.push(s);
     placeNotes(s, notesPos.col, notesPos.row);            /* place a new one at the chosen zone */
   }
+  /* make sure a freeze actually exists at that moment so the text gets its hold */
+  if(atFreeze){
+    const fr=(curClip.freezes=curClip.freezes||[]);
+    if(!fr.some(f=>Math.abs(f.at-t)<0.15)) fr.push({at:t, hold:+($('#hold')||{}).value||3});
+    if(!vid.paused) vid.pause();
+    vid.currentTime=t;
+  }
   selection=[s]; commit();
-  toast('Text placed on the clip — drag to move it, double-click to edit');
+  toast(atFreeze ? 'Text placed on the freeze — drag to move it, double-click to edit'
+                 : 'Text placed on the whole clip — drag to move it, double-click to edit');
 }
-$('#applynotes').addEventListener('click', applyNotesToClip);
+$('#applynotes').addEventListener('click', ()=>applyNotesToClip('freeze'));
+$('#applynotesclip')&&$('#applynotesclip').addEventListener('click', ()=>applyNotesToClip('clip'));
 
 /* Highlight / Learning: tag a clip so it can be pulled into a Highlights-only or
    Learning-only reel. Mutually exclusive; click again to clear. */
@@ -3629,13 +3647,17 @@ function textMetrics(s, ctx, W, scale){
   const fs=s.fs||19;                                   /* per-mark text size (px) */
   ctx.font=`600 ${fs*scale}px "Barlow Condensed",sans-serif`;
   const lh=fs*1.16*scale, paras=(s.text||'').split('\n');
-  let lines;
-  if(s.w){
-    const maxpx=Math.max(20, s.w*W); lines=[];
-    for(const p of paras){ const wl=wrap(ctx,p,maxpx); if(wl.length) lines.push(...wl); else lines.push(''); }
-  } else lines=paras;
+  /* Every text box wraps so it never spans more than two-thirds of the picture,
+     and never runs off the right edge from where it sits. A box you've resized
+     (s.w) keeps its width, inside that same cap. */
+  const left=(s.a&&Number.isFinite(s.a.x))?s.a.x:0;
+  const capFrac=Math.max(0.15, Math.min(2/3, 0.97-left));
+  const wFrac=s.w ? Math.min(s.w, capFrac) : capFrac;
+  const maxpx=Math.max(20, wFrac*W);
+  const lines=[];
+  for(const p of paras){ const wl=wrap(ctx,p,maxpx); if(wl.length) lines.push(...wl); else lines.push(''); }
   const natW=Math.max(0,...lines.map(l=>ctx.measureText(l).width));
-  return { lines, lh, boxW: s.w ? Math.max(s.w*W, natW) : natW, fs };
+  return { lines, lh, boxW: s.w ? Math.max(wFrac*W, natW) : natW, fs };
 }
 function textBoxHit(p,s){
   if(!s.a) return false;
