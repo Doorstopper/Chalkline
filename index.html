@@ -700,9 +700,6 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <button class="tbtn" data-skip="10" title="Forward 10 seconds">10s »</button>
             <button class="tbtn" data-skip="20" title="Forward 20 seconds">20s »</button>
             <span class="tc" id="tcode">00:00.00 <small>/ 00:00</small></span>
-            <button class="tbtn" data-rate=".1">0.1×</button>
-            <button class="tbtn" data-rate=".25">0.25×</button>
-            <button class="tbtn" data-rate=".5">0.5×</button>
             <button class="tbtn" data-rate="1" aria-pressed="true">1×</button>
             <button class="tbtn" data-rate="1.5" title="Skim faster">1.5×</button>
             <button class="tbtn" data-rate="2" title="Skim faster">2×</button>
@@ -729,9 +726,12 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           </div>
           <!-- Slow-mo: mark sections of the clip to play slow -->
           <div class="tgroup">
-            <span class="tglabel" title="A section plays at whichever slow speed (0.1× / 0.25× / 0.5×) is selected in the transport above">Slow-mo <span class="slowcap" id="slowcap"></span></span>
+            <span class="tglabel" title="Pick a slow speed (it plays the whole video at that speed straight away), then mark a section with Slow from → to here">Slow-mo <span class="slowcap" id="slowcap"></span></span>
             <div class="tgbtns">
-            <button class="tbtn" id="slowfrom" title="Start a new slow-mo section at the current frame — it plays at the slow speed selected above (0.25× if none)">Slow from ▶</button>
+            <button class="tbtn" data-rate=".1" title="Play at 0.1× now — click again to go back to 1×">0.1×</button>
+            <button class="tbtn" data-rate=".25" title="Play at 0.25× now — click again to go back to 1×">0.25×</button>
+            <button class="tbtn" data-rate=".5" title="Play at 0.5× now — click again to go back to 1×">0.5×</button>
+            <button class="tbtn" id="slowfrom" title="Start a new slow-mo section at the current frame — it plays at the slow speed selected here (0.25× if none)">Slow from ▶</button>
             <button class="tbtn" id="slowto" title="Finish the slow-mo section at the current frame">◀ to here</button>
             <button class="tbtn" id="slowclear" title="Remove the slow-mo section under the playhead (or the last one)">Clear</button>
             </div>
@@ -1216,7 +1216,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v209';
+const APP_VERSION = 'v210';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
