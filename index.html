@@ -336,6 +336,11 @@ button{cursor:pointer;border:none;background:none}
 .frzpop.on{display:flex}
 .frzpop .fp{font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#FFB454;text-align:center}
 .frzpop .tbtn{width:100%;text-align:left;padding:6px 9px;white-space:nowrap}
+.frzpop .fphold{display:flex;align-items:center;gap:5px;font-family:var(--mono);font-size:11px;color:var(--chalk-dim);
+  padding:2px 0 4px;border-bottom:1px solid rgba(63,95,78,.5);margin-bottom:2px}
+.frzpop .fphold .tbtn{width:26px;flex:none;padding:4px 0;text-align:center}
+.frzpop .fphold input{width:52px;min-width:0;text-align:center;padding:4px 2px;margin:0;font-family:var(--mono);font-size:12px;
+  background:var(--pitch);border:1px solid var(--line);border-radius:var(--r);color:var(--chalk)}
 .frzpop::after{content:"";position:absolute;left:50%;bottom:-6px;width:10px;height:10px;transform:translateX(-50%) rotate(45deg);
   background:rgba(12,23,17,.97);border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
 .freezedel{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:15px;height:15px;padding:0;border:none;
@@ -1213,7 +1218,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v202';
+const APP_VERSION = 'v203';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -3075,14 +3080,38 @@ function freezePopEl(){
   if(el) return el;
   el=document.createElement('div'); el.id='frzpop'; el.className='frzpop';
   el.innerHTML='<div class="fp" id="frzpoptime"></div>'
+    +'<div class="fphold" title="How long the clip pauses on this freeze">'
+    +  '<span>Hold</span>'
+    +  '<button type="button" class="tbtn" id="frzpopminus" aria-label="Shorter hold">−</button>'
+    +  '<input type="number" id="frzpophold" min="0.5" max="30" step="0.5" aria-label="Hold seconds">'
+    +  '<button type="button" class="tbtn" id="frzpopplus" aria-label="Longer hold">+</button>'
+    +  '<span>s</span>'
+    +'</div>'
     +'<button type="button" class="tbtn" id="frzpoptext" title="Jump here and type notes for this freeze">＋ Text for this freeze</button>'
     +'<button type="button" class="tbtn" id="frzpopmark" title="Jump here; new markups stay on this freeze only">✎ Markup for this freeze</button>';
   document.body.appendChild(el);
   el.addEventListener('mouseenter', ()=>clearTimeout(frzPopT));
   el.addEventListener('mouseleave', scheduleHideFreezePop);
+  const holdIn=$('#frzpophold');
+  $('#frzpopminus').addEventListener('click', ()=>setFreezeHold(frzPopIdx, (+holdIn.value||0)-0.5));
+  $('#frzpopplus').addEventListener('click',  ()=>setFreezeHold(frzPopIdx, (+holdIn.value||0)+0.5));
+  holdIn.addEventListener('change', ()=>setFreezeHold(frzPopIdx, +holdIn.value));
+  holdIn.addEventListener('keydown', ev=>{ if(ev.key==='Enter'){ ev.preventDefault(); setFreezeHold(frzPopIdx, +holdIn.value); holdIn.blur(); } });
   $('#frzpoptext').addEventListener('click', ()=>{ freezeAddText(frzPopIdx); hideFreezePop(); });
   $('#frzpopmark').addEventListener('click', ()=>{ freezeAddMarkup(frzPopIdx); hideFreezePop(); });
   return el;
+}
+/* change how long one freeze point holds, from its popover */
+function setFreezeHold(idx,v){
+  const pts=freezePts(curClip), f=pts[idx]; if(!f) return;
+  v=Math.round(Math.min(30, Math.max(0.5, +v||0))*2)/2;
+  f.hold=v; freezeHoldDefault=v;
+  freezeSig=''; liveFrozeSet.clear(); touch(curClip); save();
+  renderFreezeMarks(); updateFreezeCaption(); updateFreezeHoldBtns();
+  const hi=$('#frzpophold'); if(hi && document.activeElement!==hi) hi.value=v;
+  const tl=$('#frzpoptime'); if(tl) tl.textContent='Freeze · '+fmtClock(f.at)+' · '+v+'s';
+  /* the markers were rebuilt — re-attach the popover's hover to the same freeze */
+  const mk=$$('#trimfreezes .trimfreeze')[idx]; if(mk){ mk.classList.add('active'); }
 }
 function showFreezePop(mk,idx){
   if(freezeDrag || !curClip) return;
@@ -3090,11 +3119,17 @@ function showFreezePop(mk,idx){
   const f=freezePts(curClip)[idx]; if(!f) return;
   const el=freezePopEl(), r=mk.getBoundingClientRect();
   $('#frzpoptime').textContent='Freeze · '+fmtClock(f.at)+' · '+f.hold+'s';
+  const hi=$('#frzpophold'); if(hi && document.activeElement!==hi) hi.value=f.hold;
   el.style.left=(r.left+r.width/2)+'px'; el.style.top=(r.top)+'px';
   el.classList.add('on');
 }
 function scheduleHideFreezePop(){ clearTimeout(frzPopT); frzPopT=setTimeout(hideFreezePop,260); }
-function hideFreezePop(){ clearTimeout(frzPopT); const el=$('#frzpop'); if(el) el.classList.remove('on'); }
+function hideFreezePop(){
+  clearTimeout(frzPopT); const el=$('#frzpop'); if(!el) return;
+  /* still typing a hold value? keep it open until you're done */
+  if(el.contains(document.activeElement)){ frzPopT=setTimeout(hideFreezePop,900); return; }
+  el.classList.remove('on');
+}
 /* park the playhead exactly on a freeze so anything added now belongs to it */
 function freezeGoTo(idx){
   const f=freezePts(curClip)[idx]; if(!f) return null;
