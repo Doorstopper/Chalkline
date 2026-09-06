@@ -399,6 +399,8 @@ button{cursor:pointer;border:none;background:none}
 /* fixed width so the Play/Pause text swap (e.g. at a freeze point) doesn't shove
    the rest of the button bar left and back */
 #playbtn{min-width:62px;text-align:center}
+/* a saved "you're up to here" spot: gold star and outline, not the pressed fill */
+#spotbtn.hasspot{color:#FFC93C;border-color:rgba(255,201,60,.55);background:var(--turf)}
 .tc{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums;color:var(--flood);letter-spacing:.02em}
 .tc small{color:var(--chalk-dim)}
 
@@ -719,7 +721,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <button class="tbtn" id="tomarksbtn" title="Jump to the next markup on this clip">◆ Marks</button>
             <button class="tbtn" id="playonhere" title="Stop looping this clip and keep watching the match from where it ends">▶ Play on (this clip)</button>
             <button class="tbtn" id="playonbtn" title="Jump to just after the last clip you tagged and keep playing — to hunt for new clips without re-watching">⏭ Play on (last clip)</button>
-            <button class="tbtn" id="spotbtn" title="Mark where you're up to with a star on the bar. Click the star to jump back; click Spot again while you're on it to clear.">☆ Spot</button>
+            <button class="tbtn" id="spotbtn" title="Bookmark where you're up to with a gold star on the bar. ★ means a spot is saved — Resume jumps to it. Click Spot again while you're on it to clear.">☆ Spot</button>
             <button class="tbtn" id="resumebtn" title="Jump to your ★ spot and keep watching from there" disabled>★ Resume</button>
             <button class="tbtn" id="loopbtn" aria-pressed="true">Loop clip</button>
             <button class="tbtn" id="freezebtn" aria-pressed="true" title="Auto-pause at your marked frame while reviewing">Auto-freeze</button>
@@ -1218,7 +1220,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v203';
+const APP_VERSION = 'v204';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -3388,7 +3390,9 @@ function endRailTrim(){
    watched, so you can dip back into earlier sections and still find your place. */
 function syncSpotBtn(){
   const on = S.watchMark!=null;
-  const b=$('#spotbtn'); if(b){ b.textContent = on ? '★ Spot' : '☆ Spot'; b.setAttribute('aria-pressed', on); }
+  /* a saved spot is a bookmark, not a mode — show it as a gold star, never as
+     the yellow "pressed" fill that Loop clip / Auto-freeze use */
+  const b=$('#spotbtn'); if(b){ b.textContent = on ? '★ Spot' : '☆ Spot'; b.classList.toggle('hasspot', on); b.removeAttribute('aria-pressed'); }
   const r=$('#resumebtn'); if(r) r.disabled = !on;   /* nothing to resume to until a spot is set */
 }
 function markSpot(){
