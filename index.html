@@ -1203,7 +1203,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v200';
+const APP_VERSION = 'v201';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2025,7 +2025,14 @@ $('#clipnotes').addEventListener('input',()=>{ if(curClip){ curClip.notes=$('#cl
 
 /* Colour + one of nine positions for the "Apply to clip" text. */
 let notesColor='ours', notesPos={col:0,row:0};
-function findNotesMark(){ return curClip && curClip.shapes.find(x=>x.tool==='text' && x._notes); }
+/* The notes box for a given freeze time (a clip can have one per freeze point),
+   or with no time the single whole-clip notes box. */
+function findNotesMark(t){
+  if(!curClip) return null;
+  const notes=curClip.shapes.filter(x=>x.tool==='text' && x._notes);
+  if(Number.isFinite(t)) return notes.find(x=>!x.keep && Math.abs((x.t||0)-t)<0.15) || null;
+  return notes.find(x=>x.keep) || null;
+}
 /* anchor the text at the chosen 3×3 zone, measuring the text so centre/right/
    bottom actually line up rather than overflowing */
 function placeNotes(s, col, row){
@@ -2077,7 +2084,7 @@ function applyNotesToClip(mode){
   const atFreeze = mode!=='clip';
   const here = vid.currentTime;
   const t = atFreeze ? ((here>start && here<end) ? here : (curClip.t+(+S.offset||0))) : start;
-  let s = findNotesMark();
+  let s = atFreeze ? findNotesMark(t) : findNotesMark();   /* this freeze's box, or the whole-clip box */
   if(s){ s.text=txt; s.color=notesColor; delete s.w; s.t=t; if(atFreeze){ delete s.keep; s.linger=0; } else { s.keep=1; delete s.linger; } }
   else{
     s={tool:'text', _notes:true, color:notesColor, a:{x:0.04,y:0.06}, text:txt, fs:textSize, t};
@@ -2098,6 +2105,22 @@ function applyNotesToClip(mode){
 }
 $('#applynotes').addEventListener('click', ()=>applyNotesToClip('freeze'));
 $('#applynotesclip')&&$('#applynotesclip').addEventListener('click', ()=>applyNotesToClip('clip'));
+/* When the playhead comes to rest on one of this clip's freeze points, show that
+   freeze's text in the Notes box so you edit the right one. A freeze with no text
+   yet clears the box (so a fresh Apply doesn't copy the previous freeze's notes).
+   Anywhere else, and while you're typing, the box is left alone. */
+function syncNotesToFreeze(){
+  const ta=$('#clipnotes'); if(!ta || !curClip || document.activeElement===ta) return;
+  const here=vid.currentTime, start=clipStart(curClip), end=clipEnd(curClip);
+  const stops=freezeStops(curClip, start, end, +($('#hold')||{}).value||0);
+  const atFreeze = stops.some(st=>Math.abs(st.t-here)<0.15);
+  if(!atFreeze) return;
+  const s=findNotesMark(here);
+  ta.value = s ? (s.text||'') : '';
+  if(s && s.color){ notesColor=s.color; if(typeof renderNotePicker==='function') renderNotePicker(); }
+}
+vid.addEventListener('pause', syncNotesToFreeze);
+vid.addEventListener('seeked', syncNotesToFreeze);
 
 /* Highlight / Learning: tag a clip so it can be pulled into a Highlights-only or
    Learning-only reel. Mutually exclusive; click again to clear. */
