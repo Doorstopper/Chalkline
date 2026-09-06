@@ -893,7 +893,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
             <div class="posgrid" id="notepos"></div>
           </div>
         </div>
-        <button class="btn small primary" id="applynotes" type="button" style="width:100%;margin-top:2px" title="Put the text on the frame you're paused on (or the clip's tagged moment) — it shows on the freeze like any other markup">＋ Apply at freeze</button>
+        <button class="btn small" id="applynotes" type="button" style="width:100%;margin-top:2px;font-weight:700" title="Put the text on the frame you're paused on (or the clip's tagged moment) — it shows on the freeze like any other markup">＋ Apply at freeze</button>
         <button class="btn small" id="applynotesclip" type="button" style="width:100%;margin-top:6px" title="Keep the text on for the whole clip">Apply to whole clip</button>
         <div class="hint">Pause on the frame you want, type, then <b>Apply at freeze</b>. Text wraps to at most two-thirds of the picture. Drag to move; double-click on the clip to edit; Apply again to update.</div>
 
@@ -1216,7 +1216,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v210';
+const APP_VERSION = 'v211';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
