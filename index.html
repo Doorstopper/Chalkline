@@ -1216,7 +1216,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v211';
+const APP_VERSION = 'v212';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2371,6 +2371,7 @@ document.addEventListener('mousemove', ()=>{ if(immersive) immShow(); });
 stageEl.addEventListener('pointerdown', e=>{
   if(!immersive || stageEl.classList.contains('hideui')) return;
   if(e.target.closest('.transport') || e.target.closest('.fscorner')) return;   /* using the controls */
+  if(e.target===draw && (panMode || viewZoom>1)) return;                          /* zoomed in: that's a grab-and-pan, let it through */
   if(e.target===draw && curClip && pickHandle(pt(e))) return;                   /* grabbing a markup */
   clearTimeout(immIdleT); stageEl.classList.add('hideui'); e.stopPropagation();
 }, true);
