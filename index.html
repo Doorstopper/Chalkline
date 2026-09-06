@@ -698,6 +698,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <div class="tgroup">
             <span class="tglabel">Clips</span>
             <div class="tgbtns">
+            <button class="tbtn" id="closeclip" title="Leave this clip and go back to the whole match (Esc, or click the highlighted clip again)">✕ Close clip</button>
             <button class="tbtn" id="restartbtn" title="Back to the start of this clip">⏮ Start</button>
             <button class="tbtn" id="prevclip" title="Previous clip ( [ )">◄ Clip</button>
             <button class="tbtn" id="nextclip" title="Next clip ( ] )">Clip ►</button>
@@ -1201,7 +1202,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v198';
+const APP_VERSION = 'v199';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1928,7 +1929,8 @@ function renderClips(){
     /* hover shows the full caption/notes, which the card truncates */
     b.title = [m.label + (who?' · '+who:''), m.caption, m.ask && ('Ask: '+m.ask), m.exported && 'Exported']
       .filter(Boolean).join('\n');
-    b.addEventListener('click',()=>openAndLoop(m));   /* click a clip → open it and start playing/looping */
+    /* click a clip → open it and start looping; click the one that's already open → close it */
+    b.addEventListener('click',()=>{ if(curClip && curClip.id===m.id) closeClip(); else openAndLoop(m); });
     const del = document.createElement('button');
     del.className='clipdel'; del.textContent='×';
     del.setAttribute('aria-label','Delete clip '+m.label);
@@ -2356,6 +2358,27 @@ $('#loopbtn').addEventListener('click',()=>{
   loop=!loop; $('#loopbtn').setAttribute('aria-pressed', loop);
 });
 /* jump back to the start of the current clip — keeps the current play state */
+/* Leave the selected clip and go back to the whole match: stop looping, drop the
+   clip window off the strip, reset the right-hand Clip panel, keep the playhead
+   where it is. Reached by the ✕ Close button, Escape, or clicking the highlighted
+   clip again. */
+function closeClip(){
+  if(!curClip) return;
+  curClip=null; loopArmed=false; selection=[]; editingShape=null; finishTextEdit=null;
+  liveFrozeSet.clear(); clearTimeout(liveHoldT); clearTimeout(frameResumeT);
+  slowPending=null; slowSig=''; freezeSig='';
+  const rc=$('#recat'); if(rc){ rc.innerHTML='<option>Pick a clip first</option>'; rc.disabled=true; }
+  if($('#clipplayerinp')) $('#clipplayerinp').disabled=true;
+  renderClipPlayers();
+  if($('#caption')) $('#caption').value='';
+  if($('#clipnotes')) $('#clipnotes').value='';
+  if($('#askprompt')) $('#askprompt').textContent='Pick a clip to get a question to ask.';
+  $$('#timingrow .tbtn').forEach(b=>b.disabled=true); if($('#lingerin')) $('#lingerin').disabled=true;
+  syncKindBtns(); updateCap();
+  renderClips(); drawRail(); render();
+  toast('Back to the match — scrub anywhere');
+}
+$('#closeclip')&&$('#closeclip').addEventListener('click', closeClip);
 $('#restartbtn').addEventListener('click',()=>{
   if(!curClip || !vid.duration) return;
   clearTimeout(liveHoldT); clearTimeout(frameResumeT); liveFrozeSet.clear();
@@ -6017,6 +6040,9 @@ document.addEventListener('keydown',e=>{
   if((e.key==='f'||e.key==='F') && !mod){ e.preventDefault(); toggleImmersive(); return; }
   if(e.key==='Escape' && loupeOn){ e.preventDefault(); setLoupe(false); return; }
   if(e.key==='Escape' && chaining){ e.preventDefault(); cancelChain(false); return; }
+  /* Escape: first drop any selected marks, then leave the clip for the whole match */
+  if(e.key==='Escape' && selection.length){ e.preventDefault(); selection=[]; render(); return; }
+  if(e.key==='Escape' && curClip){ e.preventDefault(); closeClip(); return; }
   if(e.key==='Enter' && chaining){ e.preventDefault(); cancelChain(true); return; }
   if(mod && e.key==='z'){ e.preventDefault(); undoMarkup(); return; }
   /* select-all (visible marks) / copy / cut / paste — PowerPoint-style */
