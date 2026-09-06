@@ -321,7 +321,6 @@ button{cursor:pointer;border:none;background:none}
 .trimslowh.pending::before{height:80%;animation:slowpulse 1s ease-in-out infinite}
 @keyframes slowpulse{0%,100%{opacity:.35}50%{opacity:1}}
 .slowcap{font-family:var(--mono);font-size:10px;color:#8FC4FF;text-transform:none;letter-spacing:0}
-.tbtn[data-slow][aria-pressed="true"]{background:#8FC4FF;color:#0C1711;border-color:#8FC4FF}
 /* freeze points: an orange line on the trim strip you can drag, each with a × */
 .trimfreezes{position:absolute;top:var(--mlane);left:0;right:0;bottom:0;pointer-events:none}
 .trimfreeze{position:absolute;top:0;bottom:0;width:16px;transform:translateX(-50%);z-index:5;pointer-events:auto;
@@ -730,12 +729,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           </div>
           <!-- Slow-mo: mark sections of the clip to play slow -->
           <div class="tgroup">
-            <span class="tglabel">Slow-mo <span class="slowcap" id="slowcap"></span></span>
+            <span class="tglabel" title="A section plays at whichever slow speed (0.1× / 0.25× / 0.5×) is selected in the transport above">Slow-mo <span class="slowcap" id="slowcap"></span></span>
             <div class="tgbtns">
-            <button class="tbtn" data-slow=".1">0.1×</button>
-            <button class="tbtn" data-slow=".25">0.25×</button>
-            <button class="tbtn" data-slow=".5">0.5×</button>
-            <button class="tbtn" id="slowfrom" title="Start a new slow-mo section at the current frame">Slow from ▶</button>
+            <button class="tbtn" id="slowfrom" title="Start a new slow-mo section at the current frame — it plays at the slow speed selected above (0.25× if none)">Slow from ▶</button>
             <button class="tbtn" id="slowto" title="Finish the slow-mo section at the current frame">◀ to here</button>
             <button class="tbtn" id="slowclear" title="Remove the slow-mo section under the playhead (or the last one)">Clear</button>
             </div>
@@ -1220,7 +1216,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v208';
+const APP_VERSION = 'v209';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -3251,10 +3247,14 @@ $('#slowto').addEventListener('click',()=>{ if(!curClip) return toast('Pick a cl
   const from=Math.min(slowPending, t), to=Math.max(slowPending, t);
   if(to-from<0.1){ slowPending=null; updateSlowCaption(); return toast('That section was too short'); }
   if(!Array.isArray(curClip.slow)) curClip.slow=[];
-  curClip.slow.push({from, to, rate:slowRateDefault});
+  /* the section plays at the slow speed picked in the transport (0.1/0.25/0.5×);
+     if the transport is at normal speed or faster, fall back to the last one used */
+  const rate = (userRate>0 && userRate<1) ? userRate : slowRateDefault;
+  slowRateDefault=rate;
+  curClip.slow.push({from, to, rate});
   curClip.slow.sort((a,b)=>a.from-b.from);
   slowPending=null; slowSig=''; touch(curClip); save(); drawTrim();
-  toast('Slow-mo section added — '+slowRateDefault+'× ('+curClip.slow.length+' total)');
+  toast('Slow-mo section added — '+rate+'× ('+curClip.slow.length+' total)');
 });
 $('#slowclear').addEventListener('click',()=>{
   if(slowPending!=null){ slowPending=null; slowSig=''; drawTrim(); return toast('Cancelled — start point cleared'); }
@@ -3264,13 +3264,8 @@ $('#slowclear').addEventListener('click',()=>{
   zones.splice(idx,1); if(!zones.length) delete curClip.slow;
   slowSig=''; reapplyRateNow(); touch(curClip); save(); drawTrim(); toast('Slow-mo section removed');
 });
-$$('[data-slow]').forEach(b=>b.addEventListener('click',()=>{
-  const r=+b.dataset.slow;
-  slowRateDefault=r;                                    /* the speed a new "Slow from → to here" section will use */
-  const z=zoneUnderHead(); if(z){ z.rate=r; slowSig=''; touch(curClip); save(); }   /* park on a section to retune it */
-  setRate(userRate===r ? 1 : r);   /* AND play the whole video at this speed now — click the lit one again to stop */
-  drawTrim();
-}));
+/* (the Slow-mo group's own 0.1/0.25/0.5 buttons were duplicates of the transport
+   speed buttons and have been removed — a section takes its speed from those) */
 /* while a clip with slow sections is playing, drop to a section's speed inside it
    and return to the chosen whole-video speed everywhere else */
 function applyClipSlowmo(){
