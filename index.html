@@ -1220,7 +1220,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v206';
+const APP_VERSION = 'v207';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2663,6 +2663,7 @@ function renderTagBar(){
 function tagNow(i, btn){
   if(!vid.src||!vid.duration) return toast('Load a video first');
   const p=S.pads[i]; if(!p) return;
+  lastPadIndex=i;                        /* Freeze-with-no-clip reuses the category you tagged last */
   /* you react after you see it, so wind back a touch — otherwise every mark
      lands late and the pre-roll has to absorb it */
   const lag = vid.paused ? 0 : (+$('#taglag').value||0);
@@ -3301,7 +3302,30 @@ function removeFreeze(idx){
   pts.splice(idx,1); if(!pts.length) delete curClip.freezes;
   freezeSig=''; liveFrozeSet.clear(); touch(curClip); save(); drawTrim(); toast('Freeze point removed');
 }
-$('#freezeadd').addEventListener('click',()=>{ if(!curClip) return toast('Pick a clip first');
+/* Freeze with no clip open: make one on the spot. Tags a clip at this exact frame
+   (no reaction-time lag — you've deliberately stopped here) in the category you
+   used last, opens it, and parks the playhead back on the frame so the freeze
+   lands on it. */
+let lastPadIndex=0;
+function autoClipForFreeze(){
+  if(!vid.src || !vid.duration) return null;
+  const p=S.pads[lastPadIndex]||S.pads[0]; if(!p) return null;
+  const here=vid.currentTime, at=here-(+S.offset||0);
+  const m={
+    id:'m'+Date.now()+Math.random().toString(36).slice(2,6),
+    t:at, padIndex:S.pads.indexOf(p), label:p.label, color:p.color,
+    pre:Number.isFinite(p.pre)?p.pre:2, post:Number.isFinite(p.post)?p.post:7, ask:p.ask, caption:'', shapes:[],
+    player:(S.defaultPlayer||'').trim(), u:Date.now()
+  };
+  S.marks.push(m); captureThumb(m);
+  loopArmed=false;
+  selectClip(m);                       /* opens it (this seeks to the clip start) */
+  if(!vid.paused) vid.pause();
+  vid.currentTime=here;                /* ...so come straight back to the frame you froze on */
+  return m;
+}
+$('#freezeadd').addEventListener('click',()=>{
+  if(!curClip){ const m=autoClipForFreeze(); if(!m) return toast('Load a video first'); toast('New '+m.label+' clip made around this moment'); }
   const lo=clipStart(curClip), hi=clipEnd(curClip), at=Math.max(lo, Math.min(hi, vid.currentTime));
   if(!Array.isArray(curClip.freezes)) curClip.freezes=[];
   curClip.freezes.push({at, hold:freezeHoldDefault});
