@@ -1220,7 +1220,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v207';
+const APP_VERSION = 'v208';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2286,14 +2286,16 @@ vid.addEventListener('timeupdate', updateTC);
    controls overlay + cursor auto-hide after a short idle; any mouse move or key
    brings them straight back. Paused (e.g. to draw or make a clip) keeps them up. */
 const stageEl = document.querySelector('#studio .stage');
-let immersive=false, immIdleT=null;
+let immersive=false, immIdleT=null, immOverBar=false;   /* immOverBar: pointer is resting on the control bar */
 function inFullscreen(){ return document.fullscreenElement || document.webkitFullscreenElement || null; }
 function immShow(){
   if(!immersive) return;
   stageEl.classList.remove('hideui');
   positionFsCorner();   /* keep the corner button sitting above the scrubber even if the transport re-wraps */
   clearTimeout(immIdleT);
-  if(!vid.paused) immIdleT=setTimeout(()=>{ if(immersive && !vid.paused) stageEl.classList.add('hideui'); }, 2600);
+  /* never hide while the pointer is resting on the bar — the timer only counts
+     down once the mouse has moved up off it onto the picture */
+  if(!vid.paused) immIdleT=setTimeout(()=>{ if(immersive && !vid.paused && !immOverBar) stageEl.classList.add('hideui'); }, 2600);
 }
 function toggleImmersive(){
   if(!vid.src) return toast('Load a video first');
@@ -2388,6 +2390,13 @@ stageEl.addEventListener('dblclick', e=>{
   toggleImmersive();
 }, true);
 $('#fsbtn').addEventListener('click', toggleImmersive);
+/* Full screen: while the pointer is on the control bar (or a corner button) the
+   bar stays put, even with the mouse perfectly still. Moving up off the bar onto
+   the picture starts the usual countdown to hide it. */
+[stageEl.querySelector('.transport'), ...stageEl.querySelectorAll('.fscorner')].filter(Boolean).forEach(el=>{
+  el.addEventListener('mouseenter', ()=>{ immOverBar=true; clearTimeout(immIdleT); if(immersive) stageEl.classList.remove('hideui'); });
+  el.addEventListener('mouseleave', ()=>{ immOverBar=false; immShow(); });
+});
 /* re-arm the live freeze whenever we move back before the marked frame */
 vid.addEventListener('seeked',()=>{ liveFrozeAt=null; if(!curClip) return;
   for(const s of curClip.shapes){ if(s.t!=null && vid.currentTime < s.t-0.1) liveFrozeSet.delete(Math.round(s.t*10)); }
