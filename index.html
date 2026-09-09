@@ -195,6 +195,19 @@ button{cursor:pointer;border:none;background:none}
    the scrubber via bottom */
 .stage.imm .fscorner{opacity:0;pointer-events:none;transform:translateY(4px)}
 .stage.imm:not(.hideui) .fscorner{opacity:1;pointer-events:auto;transform:none}
+/* Full-screen clip badge. Only the stage renders while full screen is on, so the
+   clip strip on the right is gone — this pill is what tells you which clip you
+   just landed on when you step with the arrows or the Clip buttons. */
+.cliphud{position:absolute;top:14px;left:50%;z-index:40;display:none;align-items:center;gap:9px;
+  transform:translateX(-50%) translateY(-6px);pointer-events:none;white-space:nowrap;
+  background:rgba(6,13,10,.88);border:1px solid rgba(255,255,255,.22);border-radius:999px;
+  padding:7px 15px;box-shadow:0 3px 14px rgba(0,0,0,.5);
+  font-family:var(--mono);font-size:12px;letter-spacing:.04em;color:#EEF3EC;
+  opacity:0;transition:opacity .18s ease, transform .18s ease}
+.stage.imm .cliphud{display:flex}
+.stage.imm .cliphud.on{opacity:1;transform:translateX(-50%)}
+.cliphud .n{color:var(--chalk-dim);font-weight:700}
+.cliphud .cd{width:7px;height:7px;border-radius:99px;flex:none}
 .chips{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:5px}
 .chips:empty{display:none}
 .chip{display:inline-flex;align-items:center;gap:5px;background:rgba(59,158,255,.16);color:#cfe6ff;
@@ -633,6 +646,7 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
           <video id="vid" playsinline muted></video>
           <canvas id="draw"></canvas>
         </div>
+        <div class="cliphud" id="cliphud"></div>
         <button class="fscorner mutecorner" id="mutecorner" type="button" aria-label="Mute" title="Mute / unmute"></button>
         <button class="fscorner" id="fscorner" type="button" aria-label="Full screen" title="Full screen"></button>
         <div id="rec"><i></i><span>Recording clip — leave this tab open</span></div>
@@ -1217,7 +1231,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v213';
+const APP_VERSION = 'v214';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -1264,7 +1278,14 @@ let filterPlayer = '__all';   // which clips the Studio list + reel export show.
 /* ---------- toast ---------- */
 let toastT;
 function toast(msg){
-  const el = $('#toast'); el.textContent = msg; el.classList.add('on');
+  const el = $('#toast');
+  /* While full screen is on, the browser only paints the full-screen element and
+     what's inside it. The toast normally sits at the end of the page, so park it
+     inside whatever is full screen or the message is invisible exactly when it
+     matters most. */
+  const host = document.fullscreenElement || document.webkitFullscreenElement || document.body;
+  if(el.parentNode !== host) host.appendChild(el);
+  el.textContent = msg; el.classList.add('on');
   clearTimeout(toastT); toastT = setTimeout(()=>el.classList.remove('on'), 1900);
 }
 
@@ -2003,6 +2024,25 @@ function selectClip(m){
   if(vid.src){ vid.currentTime = clipStart(m); loopArmed = true; }
   if(isPhone()) setPanel('markup');
   renderClips(); drawRail(); render();
+  flashClipHud(m);
+}
+
+/* Name the clip you've just landed on, in full screen. Does nothing otherwise —
+   out of full screen the clip strip already highlights it. */
+let cliphudT=null;
+function flashClipHud(m){
+  const el=$('#cliphud');
+  if(!el || !immersive || !m) return;
+  const shown=[...S.marks].filter(clipInScope).sort((a,b)=>a.t-b.t);
+  const i=shown.findIndex(x=>x.id===m.id);
+  const who=playersOf(m).join(', ');
+  el.innerHTML =
+    `<span class="cd" style="background:${COLORS[m.color]?.hex||'#EEF3EC'}"></span>`+
+    (i>-1 ? `<span class="n">${i+1}/${shown.length}</span>` : '')+
+    `<span>${esc(m.label)}${who?' · '+esc(who):''}</span>`+
+    `<span class="n">${fmtClock(clipStart(m))}</span>`;
+  el.classList.add('on');
+  clearTimeout(cliphudT); cliphudT=setTimeout(()=>el.classList.remove('on'), 2200);
 }
 
 $('#recat').addEventListener('change',()=>{
