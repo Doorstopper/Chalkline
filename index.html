@@ -1231,7 +1231,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v216';
+const APP_VERSION = 'v217';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2314,25 +2314,40 @@ function watchFrameRate(){
   };
   vid.requestVideoFrameCallback(tick);
 }
-vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); if(immersive) immShow(); VF.autoProbe(); });
-vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render(); if(immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); } });
+vid.addEventListener('play', ()=>{ liveFrozeAt=null; $('#playbtn').textContent='Pause'; loopRender(); watchFrameRate(); if(immersive) immArm(); VF.autoProbe(); });
+/* Pausing usually means you're reaching for the controls, so bring them up. An
+   auto-freeze hold is the app pausing itself mid-clip, not you — revealing the
+   bar there put it back on screen a second after every flick, on any clip with
+   a mark on it. liveFrozeAt/liveHoldT are both set just before that pause(). */
+vid.addEventListener('pause',()=>{ $('#playbtn').textContent='Play'; render();
+  if(immersive && liveFrozeAt==null && !liveHoldT){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); } });
 vid.addEventListener('timeupdate', updateTC);
 
 /* ---------- immersive / full-screen watch mode ----------
-   Full-screen the stage so the video fills the screen. While playing, the
-   controls overlay + cursor auto-hide after a short idle; any mouse move or key
-   brings them straight back. Paused (e.g. to draw or make a clip) keeps them up. */
+   Full-screen the stage so the video fills the screen. The controls overlay
+   behaves like a video player's: it belongs to the strip at the bottom of the
+   picture (see inControlZone), so dropping the pointer in there brings it up and
+   moving back up over the picture puts it away. While playing it also auto-hides
+   after a short idle. Pausing yourself keeps it up — an auto-freeze hold does
+   not, or it would reappear a second after every clip you flick to. Flicking
+   clips from the keyboard puts it away rather than summoning it. */
 const stageEl = document.querySelector('#studio .stage');
 let immersive=false, immIdleT=null, immOverBar=false;   /* immOverBar: pointer is resting on the control bar */
 function inFullscreen(){ return document.fullscreenElement || document.webkitFullscreenElement || null; }
-function immShow(){
+/* Restart the countdown without revealing anything. Playback resuming from an
+   auto-freeze hold should re-arm the timer, not put the bar back on screen. */
+function immArm(){
   if(!immersive) return;
-  stageEl.classList.remove('hideui');
-  positionFsCorner();   /* keep the corner button sitting above the scrubber even if the transport re-wraps */
   clearTimeout(immIdleT);
   /* never hide while the pointer is resting on the bar — the timer only counts
      down once the mouse has moved up off it onto the picture */
   if(!vid.paused) immIdleT=setTimeout(()=>{ if(immersive && !vid.paused && !immOverBar) stageEl.classList.add('hideui'); }, 2600);
+}
+function immShow(){
+  if(!immersive) return;
+  stageEl.classList.remove('hideui');
+  positionFsCorner();   /* keep the corner button sitting above the scrubber even if the transport re-wraps */
+  immArm();
 }
 /* Put the bar away now. Never fights you while the pointer is actually on it. */
 function immAway(){
@@ -2419,6 +2434,11 @@ function onFSChange(){
   const now = inFullscreen()===stageEl;
   if(now===immersive) return;
   immersive=now;
+  /* The whole layout changes here, so a "pointer is on the bar" latch left over
+     from the windowed view means nothing — and if it stuck true (entering full
+     screen from the Full screen button, which lives on the bar) the bar could
+     never be put away again. Any real hover re-latches on the next mouse move. */
+  immOverBar=false;
   stageEl.classList.toggle('imm', immersive);
   if(!immersive){ clearTimeout(immIdleT); stageEl.classList.remove('hideui'); }
   const b=$('#fsbtn'); if(b) b.textContent = immersive ? '⛶ Exit full screen' : '⛶ Full screen';
@@ -6327,7 +6347,7 @@ document.addEventListener('keydown',e=>{
     return;
   }
   if(!$('#studio').classList.contains('on')) return;
-  if(immersive) immShow();                 /* any key counts as activity — reveal the controls */
+  if(immersive) immShow();   /* keys count as activity — except the clip-flick keys, which call immAway() below */
   const mod = e.metaKey||e.ctrlKey;
   if((e.key==='f'||e.key==='F') && !mod){ e.preventDefault(); toggleImmersive(); return; }
   if(e.key==='Escape' && loupeOn){ e.preventDefault(); setLoupe(false); return; }
