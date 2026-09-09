@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "chalkline-desktop"
+version = "0.1.0"
+description = "Native Chalkline media proof of concept; not yet a PWA replacement"
+requires-python = ">=3.12"
+dependencies = ["PySide6>=6.8,<7"]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6,<7"]
+
+[project.gui-scripts]
+Chalkline = "chalkline.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+chalkline = ["ui/*.qml", "ui/icons/*.svg"]

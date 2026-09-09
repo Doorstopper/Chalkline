@@ -1,0 +1,7 @@
+# Dollar estimates are not subscription quota percentages or billed charges.
+daily_ceiling_usd: 5.0
+per_run_ceiling_usd: 1.0
+timeout_seconds: 600
+retry_delays_seconds: [60, 180, 600]
+# Paths in briefs/queues are resolved relative to the invoking file.
+default_repo: ..

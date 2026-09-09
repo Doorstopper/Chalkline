@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.venv/
+ledger.jsonl
+results/
+scratch/
+*.lock

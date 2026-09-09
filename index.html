@@ -1006,8 +1006,9 @@ dialog::backdrop{background:rgba(6,13,10,.82)}
         </details>
 
         <div class="hint">
-          <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>,</kbd><kbd>.</kbd> slower/faster · <kbd>1</kbd>–<kbd>8</kbd> tools ·
-          <kbd>⌘Z</kbd> undo · <kbd>[</kbd><kbd>]</kbd> prev/next clip
+          <kbd>space</kbd> play · <kbd>←</kbd><kbd>→</kbd> frame · <kbd>↑</kbd><kbd>↓</kbd> or <kbd>[</kbd><kbd>]</kbd> prev/next clip ·
+          <kbd>,</kbd><kbd>.</kbd> slower/faster · <kbd>1</kbd>–<kbd>8</kbd> tools · <kbd>⌘Z</kbd> undo ·
+          <kbd>esc</kbd> out of a text box (shortcuts stop working while you're typing in one)
         </div>
       </div>
     </div>
@@ -1216,7 +1217,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v212';
+const APP_VERSION = 'v213';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -6241,7 +6242,13 @@ function download(blob,name){
 let nudgeCommitT=null;
 function nudgeCommitSoon(){ clearTimeout(nudgeCommitT); nudgeCommitT=setTimeout(()=>{ nudgeCommitT=null; commit(); }, 260); }
 document.addEventListener('keydown',e=>{
-  if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+  /* A text box or dropdown owns the keyboard while you're in it — but Escape has
+     to hand it back, otherwise every shortcut looks dead after you type a caption
+     and there's nothing on screen to tell you why. */
+  if(/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)){
+    if(e.key==='Escape'){ e.preventDefault(); e.target.blur(); toast('Shortcuts back on'); }
+    return;
+  }
   if(!$('#studio').classList.contains('on')) return;
   if(immersive) immShow();                 /* any key counts as activity — reveal the controls */
   const mod = e.metaKey||e.ctrlKey;
@@ -6335,6 +6342,10 @@ document.addEventListener('keydown',e=>{
   if(e.key===' '){ e.preventDefault(); togglePlay(); }
   else if(e.key==='ArrowLeft'){ e.preventDefault(); vid.pause(); vid.currentTime-=1/fps; render(); }
   else if(e.key==='ArrowRight'){ e.preventDefault(); vid.pause(); vid.currentTime+=1/fps; render(); }
+  /* Up/Down walk the clip list the way you'd expect of a list, so you don't have
+     to know about [ and ]. Left/Right stay on frame-stepping. */
+  else if(e.key==='ArrowUp'){ e.preventDefault(); stepClip(-1); }
+  else if(e.key==='ArrowDown'){ e.preventDefault(); stepClip(1); }
   else if(e.key==='['){ e.preventDefault(); stepClip(-1); }
   else if(e.key===']'){ e.preventDefault(); stepClip(1); }
 });
