@@ -1231,7 +1231,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v214';
+const APP_VERSION = 'v215';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -3506,6 +3506,16 @@ function stepClip(dir){
 }
 $('#prevclip').addEventListener('click', ()=>stepClip(-1));
 $('#nextclip').addEventListener('click', ()=>stepClip(1));
+/* Flicking through clips from the keyboard is watching, not operating. The pill
+   at the top of the picture already names the clip, so put the control bar away
+   rather than summoning it on every press. Clicking the ◄ Clip / Clip ► buttons
+   goes through stepClip instead and leaves the bar alone — you're using it. */
+function flickClip(dir){
+  stepClip(dir);
+  if(!immersive || immOverBar) return;   /* pointer resting on the bar means hands on the controls */
+  clearTimeout(immIdleT);
+  stageEl.classList.add('hideui');
+}
 /* ---- hovering the time bar ----
    Over open bar: preview the elapsed time at the pointer.
    Near a clip mark: light that clip up in the side panel (cool blue, so it's
@@ -6384,10 +6394,10 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='ArrowRight'){ e.preventDefault(); vid.pause(); vid.currentTime+=1/fps; render(); }
   /* Up/Down walk the clip list the way you'd expect of a list, so you don't have
      to know about [ and ]. Left/Right stay on frame-stepping. */
-  else if(e.key==='ArrowUp'){ e.preventDefault(); stepClip(-1); }
-  else if(e.key==='ArrowDown'){ e.preventDefault(); stepClip(1); }
-  else if(e.key==='['){ e.preventDefault(); stepClip(-1); }
-  else if(e.key===']'){ e.preventDefault(); stepClip(1); }
+  else if(e.key==='ArrowUp'){ e.preventDefault(); flickClip(-1); }
+  else if(e.key==='ArrowDown'){ e.preventDefault(); flickClip(1); }
+  else if(e.key==='['){ e.preventDefault(); flickClip(-1); }
+  else if(e.key===']'){ e.preventDefault(); flickClip(1); }
 });
 
 /* ============================================================
