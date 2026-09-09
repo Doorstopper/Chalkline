@@ -1231,7 +1231,7 @@ const $$ = s => [...document.querySelectorAll(s)];
 
 /* Shown discreetly by the logo so you can confirm which build has loaded after an
    update. Keep in step with the CACHE version in sw.js on every deploy. */
-const APP_VERSION = 'v215';
+const APP_VERSION = 'v216';
 { const av=$('#appver'); if(av){ av.textContent=APP_VERSION;
   av.title='Version — tap to check for the latest and reload';
   av.style.cursor='pointer';
@@ -2334,6 +2334,30 @@ function immShow(){
      down once the mouse has moved up off it onto the picture */
   if(!vid.paused) immIdleT=setTimeout(()=>{ if(immersive && !vid.paused && !immOverBar) stageEl.classList.add('hideui'); }, 2600);
 }
+/* Put the bar away now. Never fights you while the pointer is actually on it. */
+function immAway(){
+  if(!immersive || immOverBar) return;
+  clearTimeout(immIdleT);
+  stageEl.classList.add('hideui');
+}
+/* The control bar behaves like a video player's: it belongs to the strip at the
+   bottom of the picture. Drop the pointer into that strip and it comes up; move
+   back up over the picture and it goes away. Moving the mouse anywhere else no
+   longer summons it. The pad gives you a bit of grace so you don't have to hit
+   the exact pixel, and covers the 12px the bar is translated down while hidden. */
+const IMM_ZONE_PAD = 44;
+function inControlZone(clientY){
+  const t = stageEl.querySelector('.transport');
+  if(!t) return false;
+  const r = t.getBoundingClientRect();
+  if(!r.height) return false;
+  let top = r.top - IMM_ZONE_PAD;
+  /* the full-screen and mute buttons are lifted to sit just above the scrubber,
+     so the zone has to reach up past them — otherwise they can never appear and
+     there's no way to click your way back out of full screen */
+  cornerBtns().forEach(b=>{ const br=b.getBoundingClientRect(); if(br.height) top=Math.min(top, br.top-8); });
+  return clientY >= top;
+}
 function toggleImmersive(){
   if(!vid.src) return toast('Load a video first');
   if(inFullscreen()){ (document.exitFullscreen||document.webkitExitFullscreen).call(document); return; }
@@ -2404,7 +2428,10 @@ function onFSChange(){
 }
 document.addEventListener('fullscreenchange', onFSChange);
 document.addEventListener('webkitfullscreenchange', onFSChange);
-document.addEventListener('mousemove', ()=>{ if(immersive) immShow(); });
+document.addEventListener('mousemove', e=>{
+  if(!immersive) return;
+  if(inControlZone(e.clientY)) immShow(); else immAway();
+});
 /* In full screen, a click anywhere on the picture (video or the black bars) hides
    the control panel straight away — a quicker way off than the auto-hide, which
    still applies. Capture phase so it beats the canvas draw handler; clicking the
@@ -2433,7 +2460,9 @@ $('#fsbtn').addEventListener('click', toggleImmersive);
    the picture starts the usual countdown to hide it. */
 [stageEl.querySelector('.transport'), ...stageEl.querySelectorAll('.fscorner')].filter(Boolean).forEach(el=>{
   el.addEventListener('mouseenter', ()=>{ immOverBar=true; clearTimeout(immIdleT); if(immersive) stageEl.classList.remove('hideui'); });
-  el.addEventListener('mouseleave', ()=>{ immOverBar=false; immShow(); });
+  /* leaving the bar just drops the flag — the next mousemove decides, by where
+     the pointer now is, whether the bar stays up or goes away */
+  el.addEventListener('mouseleave', ()=>{ immOverBar=false; });
 });
 /* re-arm the live freeze whenever we move back before the marked frame */
 vid.addEventListener('seeked',()=>{ liveFrozeAt=null; if(!curClip) return;
@@ -3512,9 +3541,7 @@ $('#nextclip').addEventListener('click', ()=>stepClip(1));
    goes through stepClip instead and leaves the bar alone — you're using it. */
 function flickClip(dir){
   stepClip(dir);
-  if(!immersive || immOverBar) return;   /* pointer resting on the bar means hands on the controls */
-  clearTimeout(immIdleT);
-  stageEl.classList.add('hideui');
+  immAway();   /* immAway leaves it alone if the pointer is resting on the bar */
 }
 /* ---- hovering the time bar ----
    Over open bar: preview the elapsed time at the pointer.
